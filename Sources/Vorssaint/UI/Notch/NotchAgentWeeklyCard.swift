@@ -13,6 +13,8 @@ struct NotchAgentWeeklyCard: View {
     let strings: AgentWeeklyStrings
     let text: NotchAgentStrings
     var status: String? = nil
+    @ObservedObject private var forecasts = AgentCodexResetForecastSource.shared
+    @Environment(\.notchSettingsPreview) private var preview
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -35,10 +37,21 @@ struct NotchAgentWeeklyCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .onAppear { refreshForecast() }
+        .onChange(of: now) { _, _ in refreshForecast() }
+        .onDisappear { if provider == .codex && !preview { forecasts.cancel() } }
+    }
+
+    private func refreshForecast() {
+        guard provider == .codex, !preview else { return }
+        forecasts.synchronize(enabled: NotchAgentSupport.isEnabled()
+                              && NotchAgentSupport.providers().contains(.codex)
+                              && !NotchAgentSupport.hiddenCards().contains(.weekly))
     }
 
     private func reading(_ sample: AgentWeeklyUsage.Sample, cycle: AgentWeeklyUsage.Cycle) -> some View {
         let plan = AgentWeeklyPlan(sample: sample, now: now)
+        let speculative = forecasts.forecast?.plan(provider: provider, sample: sample, now: now)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(percent(sample.usedPercent) + " " + text.used).foregroundStyle(provider.tint)
@@ -52,7 +65,7 @@ struct NotchAgentWeeklyCard: View {
             } else {
                 Text(strings.unknownReset).font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            chart(cycle, plan: plan)
+            chart(cycle, plan: plan, speculative: speculative)
                 .frame(height: 94)
             HStack(spacing: 8) {
                 legend(strings.real, color: provider.tint, dashed: false)
@@ -61,6 +74,27 @@ struct NotchAgentWeeklyCard: View {
             }
             if cycle.inferredStart != nil {
                 Text(strings.inferred).font(.system(size: 8)).foregroundStyle(.secondary)
+            }
+            if provider == .codex {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let speculative, let forecast = forecasts.forecast {
+                        HStack(spacing: 5) {
+                            legend(strings.speculative, color: .orange, dashed: true)
+                            Text(date(speculative.reset)).font(.system(size: 9)).foregroundStyle(.orange)
+                        }
+                        Text(strings.speculation).font(.system(size: 8)).foregroundStyle(.secondary)
+                        Text(strings.estimateExpires + " " + date(forecast.expiresAt))
+                            .font(.system(size: 8)).foregroundStyle(.secondary)
+                    } else {
+                        Text(strings.estimateUnavailable).font(.system(size: 8)).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 4) {
+                        Link("codex-resets.com", destination: AgentCodexResetForecast.source)
+                        if let forecast = forecasts.forecast {
+                            Text("· " + strings.estimateChecked + " " + date(forecast.fetchedAt))
+                        }
+                    }.font(.system(size: 8)).foregroundStyle(.secondary)
+                }
             }
             if let plan {
                 Text(strings.goals).font(.system(size: 9)).foregroundStyle(.secondary)
@@ -82,7 +116,7 @@ struct NotchAgentWeeklyCard: View {
         }
     }
 
-    private func chart(_ cycle: AgentWeeklyUsage.Cycle, plan: AgentWeeklyPlan?) -> some View {
+    private func chart(_ cycle: AgentWeeklyUsage.Cycle, plan: AgentWeeklyPlan?, speculative: AgentWeeklyPlan?) -> some View {
         let samples = cycle.samples.filter { $0.observedAt <= now }
         let start = min(cycle.inferredStart ?? samples.first?.observedAt ?? now, samples.first?.observedAt ?? now)
         let end = max(cycle.originalReset ?? now, cycle.latest?.resetsAt ?? now, now)
@@ -101,16 +135,20 @@ struct NotchAgentWeeklyCard: View {
                         grid.addLine(to: CGPoint(x: size.width, y: size.height * (1 - value / 100)))
                         context.stroke(grid, with: .color(.white.opacity(0.12)), lineWidth: 0.5)
                     }
-                    func line(from date: Date, used: Double, to reset: Date, color: Color) {
+                    func line(from date: Date, used: Double, to reset: Date, color: Color, dash: [CGFloat] = [4, 3]) {
                         var path = Path()
                         path.move(to: position(date, used))
                         path.addLine(to: position(reset, 100))
-                        context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1, dash: dash))
                     }
                     if let inferred = cycle.inferredStart, let reset = cycle.originalReset {
                         line(from: inferred, used: 0, to: reset, color: .gray)
                     }
                     if let plan { line(from: plan.start, used: plan.initialPercent, to: plan.reset, color: .green) }
+                    if let speculative {
+                        line(from: speculative.start, used: speculative.initialPercent,
+                             to: speculative.reset, color: .orange, dash: [1, 3])
+                    }
                     for sample in samples {
                         let point = position(sample.observedAt, sample.usedPercent)
                         context.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)),

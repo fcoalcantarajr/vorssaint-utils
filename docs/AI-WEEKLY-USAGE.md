@@ -28,6 +28,11 @@ occupancy, token totals, an API bill, or a forecast of future work.
   use 17:00 on local weekdays and the actual reset as a final checkpoint. The
   local calendar handles weekends and daylight-saving changes; public holidays
   are not inferred. Each displayed reset includes a local date, time and zone.
+- **Speculative reset (Codex only):** an orange dotted alternative from the
+  latest real observation to an estimated early global reset. It is explicitly
+  labeled as a historical mean without a guarantee, separate from the green
+  account budget. The source link, check time and estimate expiration are shown.
+  Daily targets continue to use the actual account deadline, not speculation.
 
 A mid-cycle drop stays visible as observations and never moves the deadline.
 A new source observation after the preceding reported deadline opens the next
@@ -41,8 +46,9 @@ separate account Limits cards to inspect other Codex homes.
 
 ## Sources and limits
 
-No new provider, package, authentication flow, or remote server is introduced.
-The card reuses `AgentUsageService`, `AgentClaudeServer`, and `AgentCodexServer`:
+No new quota provider, package, authentication flow, or collector server is
+introduced. Account readings reuse `AgentUsageService`, `AgentClaudeServer`,
+and `AgentCodexServer`:
 
 - Codex's official local app-server supports `account/rateLimits/read`.
   `usedPercent` means quota consumed, `windowDurationMins` is the window length,
@@ -72,9 +78,38 @@ The card reuses `AgentUsageService`, `AgentClaudeServer`, and `AgentCodexServer`
   details. A CLI that omits a distinct workspace ID cannot prove isolation between
   workspaces of the same user; no cross-workspace comparison is offered.
 
-These interfaces do not provide evidence of a scheduled, account-wide early
-Codex global reset. No such scenario is displayed. Banked reset credits are a
-different feature and are never consumed by this card.
+These CLI interfaces do not announce a future global reset. The separate
+speculative line uses the public [Codex Resets API](https://codex-resets.com/api/docs),
+not account credentials. A bounded GET to
+`https://codex-resets.com/api/v1/resets?limit=100` supplies up to 100 recent
+announcements classified by the tracker as executed. Only distinct timestamps
+classified `regular` participate; records classified `banked` are excluded.
+At least three regular records are required. The arithmetic mean
+of their consecutive intervals is added to the latest regular reset. This is
+Vorssaint's historical estimate, not a forecast promised by that site or OpenAI,
+and not a calibrated probability. Irregular resets and incorrect third-party
+classifications may make it inaccurate. The classification is not independent
+proof that each record actually reset every account. During validation on
+2026-10-18, a record classified `regular` described a banked credit.
+
+The estimate is displayed only if it is still in the future, earlier than the
+real account deadline, and anchored to a fresh identified account observation.
+It expires at the earlier of the estimate and 24 hours after the feed's
+`generated_at`. Passing that date hides the line; it never rolls the estimate
+forward or adds an observed refill. Missing, malformed, future, unknown-version,
+oversized or old feed data cannot create a line. An unavailable or inapplicable
+estimate is labeled rather than substituted for the account reset.
+
+While the Codex weekly card is visible, the public feed is checked at most once
+every six hours, including after errors. Hiding the card or pausing/disabling
+AI Agents cancels an in-flight request. The existing bounded downloader uses an
+ephemeral session with no cookies or cache and no redirect to another host.
+No quota, account identity, token, local path or prompt is sent; as with any
+public HTTPS request, the source sees the connection's IP address and the app's
+User-Agent. The public estimate stays in memory and is never stored as private
+quota history or included in settings export. This adds a public-data network
+request, not a remote collector of personal usage. Banked reset credits remain
+a different feature and are never consumed by this card.
 
 This is a **local Mac collector**. It does not run with the Mac powered off,
 asleep, the app stopped, or AI Agents disabled. A subsequent account reading can

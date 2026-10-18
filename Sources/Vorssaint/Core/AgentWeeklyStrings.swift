@@ -20,6 +20,11 @@ struct AgentWeeklyStrings {
     let desktop: String
     let defaultAccount: String
     let points: String
+    let speculative: String
+    let speculation: String
+    let estimateExpires: String
+    let estimateChecked: String
+    let estimateUnavailable: String
 
     static func localized(_ language: AppLanguage) -> Self {
         switch language {
@@ -40,7 +45,12 @@ struct AgentWeeklyStrings {
                 log: "Session log",
                 desktop: "Claude app",
                 defaultAccount: "Default CLI account",
-                points: "pp")
+                points: "pp",
+                speculative: "Speculative reset",
+                speculation: "Historical mean · not guaranteed",
+                estimateExpires: "Expires",
+                estimateChecked: "Checked",
+                estimateUnavailable: "No valid early-reset estimate")
         case .ptBR:
             return Self(
                 title: "Consumo semanal",
@@ -58,7 +68,12 @@ struct AgentWeeklyStrings {
                 log: "Log da sessão",
                 desktop: "App Claude",
                 defaultAccount: "Conta padrão da CLI",
-                points: "p.p.")
+                points: "p.p.",
+                speculative: "Reset especulativo",
+                speculation: "Média histórica · sem garantia",
+                estimateExpires: "Expira",
+                estimateChecked: "Consultado",
+                estimateUnavailable: "Sem estimativa válida de reset antecipado")
         case .es:
             return Self(
                 title: "Consumo semanal",
@@ -76,7 +91,12 @@ struct AgentWeeklyStrings {
                 log: "Registro de sesión",
                 desktop: "App Claude",
                 defaultAccount: "Cuenta predeterminada de la CLI",
-                points: "p.p.")
+                points: "p.p.",
+                speculative: "Reinicio especulativo",
+                speculation: "Media histórica · sin garantía",
+                estimateExpires: "Caduca",
+                estimateChecked: "Consultado",
+                estimateUnavailable: "Sin estimación válida de reinicio anticipado")
         case .sk:
             return Self(
                 title: "Týždenná spotreba",
@@ -94,7 +114,12 @@ struct AgentWeeklyStrings {
                 log: "Záznam relácie",
                 desktop: "Aplikácia Claude",
                 defaultAccount: "Predvolený účet CLI",
-                points: "p. b.")
+                points: "p. b.",
+                speculative: "Špekulatívne obnovenie",
+                speculation: "Historický priemer · bez záruky",
+                estimateExpires: "Platí do",
+                estimateChecked: "Overené",
+                estimateUnavailable: "Bez platného odhadu skoršieho obnovenia")
         case .de:
             return Self(
                 title: "Wöchentlicher Verbrauch",
@@ -112,7 +137,12 @@ struct AgentWeeklyStrings {
                 log: "Sitzungsprotokoll",
                 desktop: "Claude-App",
                 defaultAccount: "Standardkonto der CLI",
-                points: "Prozentpunkte")
+                points: "Prozentpunkte",
+                speculative: "Spekulatives Zurücksetzen",
+                speculation: "Historischer Mittelwert · ohne Gewähr",
+                estimateExpires: "Läuft ab",
+                estimateChecked: "Geprüft",
+                estimateUnavailable: "Keine gültige Schätzung für vorzeitiges Zurücksetzen")
         case .fr:
             return Self(
                 title: "Consommation hebdomadaire",
@@ -130,7 +160,12 @@ struct AgentWeeklyStrings {
                 log: "Journal de session",
                 desktop: "App Claude",
                 defaultAccount: "Compte CLI par défaut",
-                points: "points")
+                points: "points",
+                speculative: "Réinitialisation spéculative",
+                speculation: "Moyenne historique · sans garantie",
+                estimateExpires: "Expire",
+                estimateChecked: "Consulté",
+                estimateUnavailable: "Aucune estimation valide de réinitialisation anticipée")
         case .it:
             return Self(
                 title: "Consumo settimanale",
@@ -148,7 +183,12 @@ struct AgentWeeklyStrings {
                 log: "Registro sessione",
                 desktop: "App Claude",
                 defaultAccount: "Account CLI predefinito",
-                points: "p.p.")
+                points: "p.p.",
+                speculative: "Ripristino speculativo",
+                speculation: "Media storica · nessuna garanzia",
+                estimateExpires: "Scade",
+                estimateChecked: "Verificato",
+                estimateUnavailable: "Nessuna stima valida di ripristino anticipato")
         case .ru:
             return Self(
                 title: "Недельный расход",
@@ -166,7 +206,12 @@ struct AgentWeeklyStrings {
                 log: "Журнал сеанса",
                 desktop: "Приложение Claude",
                 defaultAccount: "Аккаунт CLI по умолчанию",
-                points: "п.п.")
+                points: "п.п.",
+                speculative: "Предполагаемый сброс",
+                speculation: "Среднее по истории · без гарантии",
+                estimateExpires: "Истекает",
+                estimateChecked: "Проверено",
+                estimateUnavailable: "Нет действительной оценки досрочного сброса")
         case .tr:
             return Self(
                 title: "Haftalık kullanım",
@@ -184,7 +229,12 @@ struct AgentWeeklyStrings {
                 log: "Oturum günlüğü",
                 desktop: "Claude uygulaması",
                 defaultAccount: "Varsayılan CLI hesabı",
-                points: "puan")
+                points: "puan",
+                speculative: "Varsayımsal sıfırlama",
+                speculation: "Geçmiş ortalaması · garanti yok",
+                estimateExpires: "Son geçerlilik",
+                estimateChecked: "Kontrol edildi",
+                estimateUnavailable: "Geçerli erken sıfırlama tahmini yok")
         case .ja:
             return Self(
                 title: "週間使用量",
@@ -202,7 +252,12 @@ struct AgentWeeklyStrings {
                 log: "セッションログ",
                 desktop: "Claudeアプリ",
                 defaultAccount: "CLIの既定アカウント",
-                points: "ポイント")
+                points: "ポイント",
+                speculative: "推測リセット",
+                speculation: "過去の平均 · 保証なし",
+                estimateExpires: "有効期限",
+                estimateChecked: "確認日時",
+                estimateUnavailable: "有効な早期リセット推定なし")
         case .ko:
             return Self(
                 title: "주간 사용량",
@@ -220,7 +275,12 @@ struct AgentWeeklyStrings {
                 log: "세션 로그",
                 desktop: "Claude 앱",
                 defaultAccount: "기본 CLI 계정",
-                points: "%p")
+                points: "%p",
+                speculative: "추정 초기화",
+                speculation: "과거 평균 · 보장 없음",
+                estimateExpires: "만료",
+                estimateChecked: "확인",
+                estimateUnavailable: "유효한 조기 초기화 추정 없음")
         case .uk:
             return Self(
                 title: "Тижневе споживання",
@@ -238,7 +298,12 @@ struct AgentWeeklyStrings {
                 log: "Журнал сеансу",
                 desktop: "Застосунок Claude",
                 defaultAccount: "Типовий обліковий запис CLI",
-                points: "в.п.")
+                points: "в.п.",
+                speculative: "Припустиме скидання",
+                speculation: "Історичне середнє · без гарантії",
+                estimateExpires: "Діє до",
+                estimateChecked: "Перевірено",
+                estimateUnavailable: "Немає чинної оцінки дострокового скидання")
         case .zhHans:
             return Self(
                 title: "每周用量",
@@ -256,7 +321,12 @@ struct AgentWeeklyStrings {
                 log: "会话日志",
                 desktop: "Claude 应用",
                 defaultAccount: "CLI 默认账户",
-                points: "百分点")
+                points: "百分点",
+                speculative: "推测重置",
+                speculation: "历史平均值 · 不保证",
+                estimateExpires: "到期",
+                estimateChecked: "查询时间",
+                estimateUnavailable: "暂无有效的提前重置估计")
         case .zhTW:
             return Self(
                 title: "每週用量",
@@ -274,7 +344,12 @@ struct AgentWeeklyStrings {
                 log: "工作階段記錄",
                 desktop: "Claude 應用程式",
                 defaultAccount: "CLI 預設帳號",
-                points: "百分點")
+                points: "百分點",
+                speculative: "推測重設",
+                speculation: "歷史平均值 · 不保證",
+                estimateExpires: "到期",
+                estimateChecked: "查詢時間",
+                estimateUnavailable: "暫無有效的提前重設估計")
         case .zhHK:
             return Self(
                 title: "每週用量",
@@ -292,7 +367,12 @@ struct AgentWeeklyStrings {
                 log: "工作階段記錄",
                 desktop: "Claude 應用程式",
                 defaultAccount: "CLI 預設帳戶",
-                points: "百分點")
+                points: "百分點",
+                speculative: "推測重設",
+                speculation: "歷史平均值 · 不保證",
+                estimateExpires: "到期",
+                estimateChecked: "查詢時間",
+                estimateUnavailable: "暫無有效的提前重設估計")
         }
     }
 }

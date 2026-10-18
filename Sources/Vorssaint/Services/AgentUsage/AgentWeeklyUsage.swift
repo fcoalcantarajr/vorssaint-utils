@@ -137,9 +137,9 @@ struct AgentWeeklyPlan {
     let initialPercent: Double
     var remainingPercent: Double { 100 - initialPercent }
 
-    init?(sample: AgentWeeklyUsage.Sample, now: Date) {
+    init?(sample: AgentWeeklyUsage.Sample, now: Date, speculativeReset: Date? = nil) {
         guard sample.valid, !sample.isStale(at: now),
-              let reset = sample.resetsAt, reset > now else { return nil }
+              let reset = speculativeReset ?? sample.resetsAt, reset > now else { return nil }
         start = sample.observedAt
         self.reset = reset
         initialPercent = sample.usedPercent

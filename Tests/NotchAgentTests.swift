@@ -44,6 +44,7 @@ enum NotchAgentTests {
         AgentUsageEventDeliveryTests.run(suite)
         NotchAgentAnimationTests.run { suite.expect($0, $1) }
         AgentWeeklyUsageTests.run(suite)
+        AgentCodexResetForecastTests.run(suite)
         suite.expect(NotchAgentCard(rawValue: "weekly") != nil,
                      "weekly usage is a selectable AI agents card")
     }
