@@ -99,7 +99,10 @@ struct AgentWeeklyUsage: Codable, Equatable {
         return true
     }
 
-    private mutating func prune(now: Date) {
+    /// Also runs without new readings, at archive load and service maintenance.
+    @discardableResult
+    mutating func prune(now: Date) -> Bool {
+        let before = cycles.reduce(0) { $0 + $1.samples.count }
         let cutoff = now.addingTimeInterval(-91 * 86_400)
         for index in cycles.indices { cycles[index].samples.removeAll { $0.observedAt < cutoff } }
         cycles.removeAll { $0.samples.isEmpty }
@@ -109,6 +112,7 @@ struct AgentWeeklyUsage: Codable, Equatable {
             cycles[index].samples.removeFirst(removed)
             excess -= removed
         }
+        return cycles.reduce(0) { $0 + $1.samples.count } != before
     }
 
     var valid: Bool {
@@ -205,7 +209,16 @@ enum AgentWeeklyUsageFile {
     private struct Archive: Codable { let version: Int; let history: AgentWeeklyUsage }
     static var url: URL? { PrivateFileStore.containerURL?.appendingPathComponent("AgentUsage/weekly-usage.json") }
 
-    static func load(from url: URL?) -> (history: AgentWeeklyUsage, failed: Bool) {
+    static func load(from url: URL?, now: Date = Date()) -> (history: AgentWeeklyUsage, failed: Bool) {
+        var loaded = read(from: url)
+        guard !loaded.failed else { return loaded }
+        if loaded.history.prune(now: now) {
+            loaded.failed = !save(loaded.history, to: url)
+        }
+        return loaded
+    }
+
+    private static func read(from url: URL?) -> (history: AgentWeeklyUsage, failed: Bool) {
         guard let url, FileManager.default.fileExists(atPath: url.path) else { return (AgentWeeklyUsage(), false) }
         guard let data = try? Data(contentsOf: url), data.count <= 16_000_000,
               let archive = try? JSONDecoder().decode(Archive.self, from: data), archive.version == 1,
@@ -215,7 +228,7 @@ enum AgentWeeklyUsageFile {
 
     @discardableResult
     static func save(_ history: AgentWeeklyUsage, to url: URL?) -> Bool {
-        guard let url, history.valid, !load(from: url).failed,
+        guard let url, history.valid, !read(from: url).failed,
               let data = try? JSONEncoder().encode(Archive(version: 1, history: history)),
               PrivateFileStore.createDirectory(at: url.deletingLastPathComponent()) else { return false }
         return PrivateFileStore.write(data, to: url)

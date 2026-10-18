@@ -73,6 +73,7 @@ enum AgentWeeklyUsageTests {
         suite.expect(AgentWeeklyPlan(sample: unknown.current(.codex)!.latest!, now: start) == nil,
                      "an unknown reset means no invented ideal or budget")
         persistence(suite, history: history)
+        retention(suite)
         checkpoints(suite)
         for language in AppLanguage.allCases {
             let strings = AgentWeeklyStrings.localized(language)
@@ -100,6 +101,49 @@ enum AgentWeeklyUsageTests {
         suite.expect(invalid.failed && invalid.history == AgentWeeklyUsage(), "corrupt history is reported instead of treated as an empty valid file")
         suite.expect(!AgentWeeklyUsageFile.save(history, to: url) && (try? Data(contentsOf: url)) == Data("broken history".utf8),
                      "subsequent collection cannot overwrite a damaged history file")
+    }
+
+    private static func retention(_ suite: TestSuite) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("weekly.json")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let expired = now.addingTimeInterval(-92 * 86_400)
+        let recent = now.addingTimeInterval(-90 * 86_400)
+        func reading(at date: Date) -> AgentLimits {
+            AgentLimits(provider: .codex, windows: [
+                AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                                 usedPercent: 20, resetsAt: date.addingTimeInterval(604_800))
+            ], observedAt: date, source: .account, accountScope: "retention-account")
+        }
+        var history = AgentWeeklyUsage()
+        _ = history.record(reading(at: expired), now: expired)
+        _ = history.record(reading(at: recent), now: recent)
+        suite.expect(AgentWeeklyUsageFile.save(history, to: url), "retention fixture saves both observations before maintenance")
+        let loaded = AgentWeeklyUsageFile.load(from: url, now: now)
+        suite.expect(!loaded.failed && loaded.history.current(.codex)?.samples.map(\.observedAt) == [recent],
+                     "loading history removes expired observations without a new quota reading")
+        let disk = try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        let saved = disk?["history"] as? [String: Any]
+        let cycles = saved?["cycles"] as? [[String: Any]]
+        suite.expect((cycles?.first?["samples"] as? [[String: Any]])?.count == 1,
+                     "load-time retention persists removal instead of only hiding expired observations")
+        var old = AgentWeeklyUsage()
+        _ = old.record(reading(at: expired), now: expired)
+        suite.expect(AgentWeeklyUsageFile.save(old, to: url), "an entirely expired archive can be written for maintenance")
+        let empty = AgentWeeklyUsageFile.load(from: url, now: now)
+        suite.expect(!empty.failed && empty.history.cycles.isEmpty,
+                     "loading an entirely expired archive removes its empty cycles")
+        suite.expect(!old.record(reading(at: expired), now: now), "a cached observation adds no new sample")
+        suite.expect(old.prune(now: now) && old.cycles.isEmpty && !old.prune(now: now),
+                     "periodic maintenance expires history despite a rejected cached observation and is idempotent")
+        let boundary = now.addingTimeInterval(-91 * 86_400)
+        var exact = AgentWeeklyUsage()
+        _ = exact.record(reading(at: boundary), now: boundary)
+        suite.expect(!exact.prune(now: now) && exact.current(.codex)?.latest?.observedAt == boundary,
+                     "an observation exactly at the retention cutoff is preserved")
+        suite.expect(exact.prune(now: now.addingTimeInterval(1)) && exact.cycles.isEmpty,
+                     "the same observation expires once it falls behind the cutoff")
     }
 
     private static func checkpoints(_ suite: TestSuite) {

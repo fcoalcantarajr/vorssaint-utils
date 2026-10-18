@@ -596,6 +596,10 @@ final class AgentUsageService: ObservableObject {
             // A log kept open through a long pause reports nothing when work
             // resumes; the day's logs are looked at less often than recent ones.
             var changed = pollOpenLogs(within: 86_400)
+            if weeklyHistory.prune(now: now) {
+                weeklySaveFailed = !AgentWeeklyUsageFile.save(weeklyHistory, to: AgentWeeklyUsageFile.url)
+                changed = true
+            }
             // A folder that appears later, like a first Codex session, is
             // picked up without a restart.
             if now.timeIntervalSince(lastRootCheck) > 300 {
@@ -645,7 +649,7 @@ final class AgentUsageService: ObservableObject {
         if let claudePlan { plans[.claude] = claudePlan }
         if let codex = AgentPlans.codex(planType: store.codexPlan) { plans[.codex] = codex }
         let next = store.snapshot(plans: plans, providers: enabled, now: Date())
-        var weeklyChanged = false
+        var weeklyChanged = weeklyHistory.prune(now: Date())
         for reading in store.limits.values where enabled.contains(reading.provider) {
             if weeklyHistory.record(reading, now: Date()) { weeklyChanged = true }
         }
