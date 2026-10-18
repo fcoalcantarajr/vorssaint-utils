@@ -159,7 +159,11 @@ struct AgentWeeklyPlan {
             guard day < reset else { break }
             if !calendar.isDateInWeekend(day),
                let checkpoint = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: day),
-               checkpoint > start, checkpoint < reset { dates.append(checkpoint) }
+               checkpoint > start, checkpoint < reset,
+               !calendar.isDate(checkpoint, equalTo: reset, toGranularity: .minute) {
+                // Both rows would display 17:00. Keep the exact source reset.
+                dates.append(checkpoint)
+            }
             guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
             day = next
         }

@@ -117,5 +117,12 @@ enum AgentWeeklyUsageTests {
         suite.expect(abs((goals.first?.usedPercent ?? 0) - 85.16129032258064) < 0.000001,
                      "daily targets use elapsed time on the recalibrated line, in percentage points")
         suite.expect(goals.last?.usedPercent == 100, "the final checkpoint uses the complete quota")
+        let nearCheckpoint = parse.date(from: "2026-03-09T21:00:30Z")!
+        let nearSample = AgentWeeklyUsage.Sample(observedAt: now, usedPercent: 40,
+                                                 resetsAt: nearCheckpoint, source: "account")
+        let nearGoals = AgentWeeklyPlan(sample: nearSample, now: now)!.checkpoints(calendar: calendar)
+        suite.expect(nearGoals.count == 1 && nearGoals.first?.date == nearCheckpoint
+                     && nearGoals.first?.usedPercent == 100,
+                     "a reset within the 17:00 display minute replaces the daily checkpoint without changing its actual deadline")
     }
 }
