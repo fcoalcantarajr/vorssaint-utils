@@ -24,7 +24,7 @@ occupancy, token totals, an API bill, or a forecast of future work.
   the last observation is ten minutes old or the reset has
   passed. The last real value, timestamp and source remain visible.
 - **Daily targets:** cumulative maximum consumption along that straight line,
-  with additional allowance relative to the last reading in parentheses. Targets
+  with additional allowance relative to the last reading in a separate column. Targets
   use 17:00 on local weekdays and the actual reset as a final checkpoint. The
   local calendar handles weekends and daylight-saving changes; public holidays
   are not inferred. A three-column table separates the day, cumulative usage
