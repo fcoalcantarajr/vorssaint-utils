@@ -113,9 +113,12 @@ forward or adds an observed refill. Missing, malformed, future, unknown-version,
 oversized or old feed data cannot create a line. An unavailable or inapplicable
 estimate is labeled rather than substituted for the account reset.
 
-While the Codex weekly card is visible, the public feed is checked at most once
-every six hours, including after errors. Hiding the card or pausing/disabling
-AI Agents cancels an in-flight request. The existing bounded downloader uses an
+While the Codex weekly card is visible, opening the AI page automatically checks
+the public feed, even before an account reading is available. Completed attempts
+wait six hours before another check in that app session, including after errors.
+Hiding the card or pausing/disabling AI Agents cancels an in-flight request; a
+canceled attempt can retry when the card returns. Restarting the app resets this
+in-memory cadence. The existing bounded downloader uses an
 ephemeral session with no cookies or cache and no redirect to another host.
 No quota, account identity, token, local path or prompt is sent; as with any
 public HTTPS request, the source sees the connection's IP address and the app's
@@ -141,7 +144,10 @@ and original cycle references. It contains no prompt, reply, account credentials
 or raw provider payload, and settings export does not include it.
 
 The history is retained across app restarts and disabling/re-enabling AI Agents,
-bounded to 91 days and 40,000 observations. Disabling the feature stops adding
+bounded to 91 days and 40,000 observations. Age cleanup is persisted when history
+is loaded and during service maintenance, even without new readings. While the
+app is stopped or AI Agents disabled, the archive is untouched; expired samples
+are removed the next time AI Agents starts. Disabling the feature stops adding
 observations. An unreadable, invalid or unknown-version file is preserved rather
 than overwritten; the card shows a warning. Restore the private file from a
 backup, or move it aside while the app is stopped, to start a new history.
