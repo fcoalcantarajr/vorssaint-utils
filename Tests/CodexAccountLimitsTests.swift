@@ -22,6 +22,7 @@ enum CodexAccountLimitsTests {
             try boundaries(suite, root: root, profiles: profiles)
             try conversations(suite, root: root, profiles: profiles)
             lifecycle(suite, profiles: profiles)
+            weeklyLifecycle(suite, profiles: profiles)
         } catch { suite.expect(false, "Codex account contract: \(error)") }
     }
 
@@ -199,13 +200,13 @@ enum CodexAccountLimitsTests {
                 if [ -f "$CODEX_HOME/signed-out" ]; then
                     printf '%s\n' '{"id":2,"result":{"account":{"type":"apiKey"}}}'
                 else
-                    printf '{"id":2,"result":{"account":{"type":"chatgpt","planType":"%s"}}}\n' "$PLAN"
+                    printf '{"id":2,"result":{"account":{"type":"chatgpt","email":"shared@example.invalid","planType":"%s"}}}\n' "$PLAN"
                 fi;;
             *'"method":"account/rateLimits/read"'*)
                 if [ -f "$CODEX_HOME/failure" ]; then
                     printf '%s\n' '{"id":3,"error":{"code":-32601,"message":"method not found"}}'
                 else
-                    printf '{"id":3,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":%s,"windowDurationMins":300,"resetsAt":4102444800},"secondary":{"usedPercent":%s,"windowDurationMins":10080,"resetsAt":4102444800}}}}\n' "$USED" "$WEEK"
+                    printf '{"id":3,"result":{"accountId":"%s","rateLimits":{"limitId":"codex","primary":{"usedPercent":%s,"windowDurationMins":300,"resetsAt":4102444800},"secondary":{"usedPercent":%s,"windowDurationMins":10080,"resetsAt":4102444800}}}}\n' "$PLAN" "$USED" "$WEEK"
                 fi;;
             *) exit 6;;
         esac
@@ -221,6 +222,9 @@ enum CodexAccountLimitsTests {
             CodexAccountUsageReader.read(profile, executable: cli, searchPath: nil, cancellation: cancellation, timeout: timeout)
         }
         let readings = profiles.map { try? read($0).get() }
+        suite.expect(readings[0]?.limits.accountScope?.count == 64
+                     && readings[0]?.limits.accountScope != readings[1]?.limits.accountScope,
+                     "the official account response supplies separate opaque history scopes without persisting email")
         suite.expect(readings.map { $0?.limits.windows.first?.usedPercent } == [14, 100]
                         && readings.map { $0?.limits.windows.last?.usedPercent } == [61, 41]
                         && readings.map { $0?.plan } == ["Plus", "Business"],
@@ -459,5 +463,32 @@ enum CodexAccountLimitsTests {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         suite.expect(probe.calls.count == beforeOpen + 1 && service.timer == nil && service.states.allSatisfy { !$0.checking },
                      "with Codex turned off no account is checked, even when asked")
+    }
+
+    private static func weeklyLifecycle(_ suite: TestSuite, profiles: [CodexAccountProfile]) {
+        let domain = "com.vorssaint.tests.weekly-accounts." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
+        for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
+        defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
+        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+        defaults.set(CodexAccountProfile.encode(profiles), forKey: DefaultsKey.notchAgentsCodexProfiles)
+        let probe = Probe()
+        probe.hold(true)
+        let service = CodexProfileLimitsService(defaults: defaults, reader: probe.read, loginShellPath: { nil })
+        defer { service.pause() }
+        service.pageDidAppear(includeWeekly: true)
+        wait { !probe.calls.isEmpty }
+        suite.expect(service.states.map(\.id) == [CodexProfileLimitsService.weeklyProfileID]
+                     && probe.calls == [CodexProfileLimitsService.weeklyProfileID],
+                     "Weekly reads only the default account when Limits and its added-account cards are hidden")
+        defaults.set("limits,weekly", forKey: DefaultsKey.notchAgentsHiddenCards)
+        service.synchronize()
+        wait { !probe.cancelled.isEmpty }
+        suite.expect(service.timer == nil && service.states.isEmpty
+                     && probe.cancelled == [CodexProfileLimitsService.weeklyProfileID],
+                     "hiding Weekly cancels its default-account check and timer without reviving hidden accounts")
     }
 }

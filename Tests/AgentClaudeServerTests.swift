@@ -13,6 +13,7 @@ enum AgentClaudeServerTests {
     }
 
     class Fixture {
+        var claudeWeeklyScope: String?
         var running = true
         var paused = false
         var online = true

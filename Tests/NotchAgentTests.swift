@@ -43,6 +43,9 @@ enum NotchAgentTests {
         formatting(suite)
         AgentUsageEventDeliveryTests.run(suite)
         NotchAgentAnimationTests.run { suite.expect($0, $1) }
+        AgentWeeklyUsageTests.run(suite)
+        suite.expect(NotchAgentCard(rawValue: "weekly") != nil,
+                     "weekly usage is a selectable AI agents card")
     }
 
     private static func line(_ json: String) -> Data { Data(json.utf8) }
@@ -3074,8 +3077,10 @@ enum NotchAgentTests {
         func used(page: Bool) -> Bool { NotchAgentSupport.limitsInUse(pageShown: page, in: defaults) }
         let alerts = used(page: false)
         defaults.set(false, forKey: DefaultsKey.notchAgentsLimitAlert)
-        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+        defaults.set("limits,weekly", forKey: DefaultsKey.notchAgentsHiddenCards)
         let unused = !used(page: false) && !used(page: true)
+        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+        let weekly = !used(page: false) && used(page: true)
         defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
         let card = !used(page: false) && used(page: true)
         defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
@@ -3084,8 +3089,8 @@ enum NotchAgentTests {
         defaults.set(false, forKey: DefaultsKey.notchAgentsLiveActivity)
         let liveOff = !used(page: false)
         defaults.set(NotchIdleContent.agents.rawValue, forKey: DefaultsKey.notchIdleContent)
-        suite.expect(alerts && unused && card && readout && liveOff && used(page: false),
-                     "limits are in use for their alerts, a live limit reading, the resting island or the page's Limits card, and only then")
+        suite.expect(alerts && unused && weekly && card && readout && liveOff && used(page: false),
+                     "limits are in use for alerts, live limits, resting limits or the visible Limits and Weekly cards")
     }
 
     private static func preferences(_ suite: TestSuite) {
@@ -3120,7 +3125,7 @@ enum NotchAgentTests {
 
         defaults.set("trend,unknown,trend,spend", forKey: DefaultsKey.notchAgentsCardOrder)
         defaults.set("activity,projects", forKey: DefaultsKey.notchAgentsHiddenCards)
-        suite.expect(NotchAgentSupport.cards(in: defaults) == [.trend, .spend, .limits, .live, .models, .resets],
+        suite.expect(NotchAgentSupport.cards(in: defaults) == [.trend, .spend, .limits, .live, .models, .resets, .weekly],
                      "the saved order ignores unknown and repeated cards and appends new ones")
         defaults.set(false, forKey: DefaultsKey.notchAgentsCodex)
         suite.expect(NotchAgentSupport.providers(in: defaults) == [.claude, .opencode, .copilot], "an agent can be left out")

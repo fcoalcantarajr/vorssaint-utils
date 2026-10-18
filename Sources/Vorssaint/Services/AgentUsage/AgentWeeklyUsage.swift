@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Vorssaint
+
+import Foundation
+import CryptoKit
+
+enum AgentWeeklyAccount {
+    /// A local namespace, never the original email, UUID or organization.
+    static func scope(identifier: String?, organization: String? = nil) -> String? {
+        guard let identifier, !identifier.isEmpty else { return nil }
+        let value = identifier + "\u{0}" + (organization ?? "")
+        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// Quota observations, never reconstructed token totals or synthetic ticks.
+/// Only the default Claude/Codex sources participate; added Codex homes keep
+/// their separate Limits cards. Private history is excluded from settings export.
+struct AgentWeeklyUsage: Codable, Equatable {
+    struct Sample: Codable, Equatable {
+        let observedAt: Date
+        let usedPercent: Double
+        let resetsAt: Date?
+        let source: String
+
+        func isStale(at now: Date) -> Bool {
+            now < observedAt || now.timeIntervalSince(observedAt) >= 600 || resetsAt.map { $0 <= now } == true
+        }
+
+        var valid: Bool {
+            observedAt.timeIntervalSince1970.isFinite && observedAt.timeIntervalSince1970 > 0
+                && usedPercent.isFinite && (0...100).contains(usedPercent)
+                && ["account", "sessionLog", "claudeApp"].contains(source)
+                && (resetsAt.map { $0.timeIntervalSince1970.isFinite && $0 > observedAt } ?? true)
+        }
+    }
+
+    struct Cycle: Codable, Equatable {
+        let provider: String
+        let accountScope: String
+        /// The first source-reported reset stays fixed if the source revises it.
+        var originalReset: Date?
+        /// Inferred from the source's duration; never an observed zero point.
+        var inferredStart: Date?
+        var samples: [Sample]
+        var latest: Sample? { samples.last }
+    }
+
+    private(set) var cycles: [Cycle] = []
+    private var activeScopes: [String: String] = [:]
+    static let maxSamples = 40_000
+
+    func current(_ provider: AgentProvider) -> Cycle? {
+        cycles.last { $0.provider == provider.rawValue && $0.accountScope == activeScopes[provider.rawValue] }
+    }
+
+    /// Clearing the selected scope removes its plan immediately without
+    /// deleting private observations from the previous account.
+    @discardableResult
+    mutating func selectAccount(_ scope: String?, provider: AgentProvider) -> Bool {
+        guard activeScopes[provider.rawValue] != scope else { return false }
+        activeScopes[provider.rawValue] = scope
+        return true
+    }
+
+    @discardableResult
+    mutating func record(_ reading: AgentLimits, now: Date) -> Bool {
+        guard reading.source != .claudeApp, let scope = reading.accountScope, !scope.isEmpty,
+              [.claude, .codex].contains(reading.provider), reading.observedAt <= now,
+              let window = reading.windows.first(where: { $0.kind == .weekly && $0.scope == nil }) else { return false }
+        let source: String
+        switch reading.source {
+        case .account: source = "account"
+        case .sessionLog: source = "sessionLog"
+        case .claudeApp: source = "claudeApp"
+        }
+        // Claude Desktop's historical drops cannot establish a reset deadline.
+        let reset = reading.source == .claudeApp ? nil : window.resetsAt
+        let sample = Sample(observedAt: reading.observedAt, usedPercent: window.usedPercent,
+                            resetsAt: reset, source: source)
+        guard sample.valid else { return false }
+        let previous = cycles.lastIndex { $0.provider == reading.provider.rawValue && $0.accountScope == scope }
+        if let latest = previous.flatMap({ cycles[$0].latest }), latest.observedAt >= sample.observedAt { return false }
+        let previousReset = previous.flatMap { cycles[$0].latest?.resetsAt ?? cycles[$0].originalReset }
+        let beginsCycle = previous == nil || previousReset.map { $0 <= sample.observedAt } == true
+        if beginsCycle {
+            cycles.append(Cycle(provider: reading.provider.rawValue, accountScope: scope, samples: []))
+        }
+        let index = beginsCycle ? cycles.count - 1 : previous!
+        if cycles[index].originalReset == nil, let reset {
+            cycles[index].originalReset = reset
+            if let minutes = window.minutes, minutes > 0 {
+                cycles[index].inferredStart = reset.addingTimeInterval(-Double(minutes) * 60)
+            }
+        }
+        cycles[index].samples.append(sample)
+        activeScopes[reading.provider.rawValue] = scope
+        prune(now: now)
+        return true
+    }
+
+    private mutating func prune(now: Date) {
+        let cutoff = now.addingTimeInterval(-91 * 86_400)
+        for index in cycles.indices { cycles[index].samples.removeAll { $0.observedAt < cutoff } }
+        cycles.removeAll { $0.samples.isEmpty }
+        var excess = cycles.reduce(0) { $0 + $1.samples.count } - Self.maxSamples
+        for index in cycles.indices where excess > 0 {
+            let removed = min(excess, max(0, cycles[index].samples.count - 1))
+            cycles[index].samples.removeFirst(removed)
+            excess -= removed
+        }
+    }
+
+    var valid: Bool {
+        guard cycles.count <= 400, cycles.reduce(0, { $0 + $1.samples.count }) <= Self.maxSamples else { return false }
+        return cycles.allSatisfy { cycle in
+            guard ["claude", "codex"].contains(cycle.provider), !cycle.accountScope.isEmpty, !cycle.samples.isEmpty,
+                  cycle.samples.allSatisfy(\.valid) else { return false }
+            if let reset = cycle.originalReset, !reset.timeIntervalSince1970.isFinite { return false }
+            if let start = cycle.inferredStart {
+                guard let reset = cycle.originalReset, start.timeIntervalSince1970.isFinite, start < reset else { return false }
+            }
+            return zip(cycle.samples, cycle.samples.dropFirst()).allSatisfy { $0.observedAt < $1.observedAt }
+        }
+    }
+}
+
+/// A budget, not a prediction. An expired or stale reading cannot promise a
+/// current allowance. The UI still shows its actual value and timestamp.
+struct AgentWeeklyPlan {
+    struct Checkpoint {
+        let date: Date
+        let usedPercent: Double
+    }
+    let start: Date
+    let reset: Date
+    let initialPercent: Double
+    var remainingPercent: Double { 100 - initialPercent }
+
+    init?(sample: AgentWeeklyUsage.Sample, now: Date) {
+        guard sample.valid, !sample.isStale(at: now),
+              let reset = sample.resetsAt, reset > now else { return nil }
+        start = sample.observedAt
+        self.reset = reset
+        initialPercent = sample.usedPercent
+    }
+
+    func used(at date: Date) -> Double {
+        let elapsed = min(1, max(0, date.timeIntervalSince(start) / reset.timeIntervalSince(start)))
+        return initialPercent + remainingPercent * elapsed
+    }
+
+    /// Local 17:00 on working weekdays, plus the source's actual reset even
+    /// when it falls on a weekend. Holidays are not inferred from the locale.
+    func checkpoints(calendar: Calendar = .autoupdatingCurrent) -> [Checkpoint] {
+        var day = calendar.startOfDay(for: start)
+        var dates: [Date] = []
+        for _ in 0..<32 {
+            guard day < reset else { break }
+            if !calendar.isDateInWeekend(day),
+               let checkpoint = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: day),
+               checkpoint > start, checkpoint < reset { dates.append(checkpoint) }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        dates.append(reset)
+        return dates.map { Checkpoint(date: $0, usedPercent: used(at: $0)) }
+    }
+}
+
+enum AgentWeeklyUsageFile {
+    private struct Archive: Codable { let version: Int; let history: AgentWeeklyUsage }
+    static var url: URL? { PrivateFileStore.containerURL?.appendingPathComponent("AgentUsage/weekly-usage.json") }
+
+    static func load(from url: URL?) -> (history: AgentWeeklyUsage, failed: Bool) {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else { return (AgentWeeklyUsage(), false) }
+        guard let data = try? Data(contentsOf: url), data.count <= 16_000_000,
+              let archive = try? JSONDecoder().decode(Archive.self, from: data), archive.version == 1,
+              archive.history.valid else { return (AgentWeeklyUsage(), true) }
+        return (archive.history, false)
+    }
+
+    @discardableResult
+    static func save(_ history: AgentWeeklyUsage, to url: URL?) -> Bool {
+        guard let url, history.valid, !load(from: url).failed,
+              let data = try? JSONEncoder().encode(Archive(version: 1, history: history)),
+              PrivateFileStore.createDirectory(at: url.deletingLastPathComponent()) else { return false }
+        return PrivateFileStore.write(data, to: url)
+    }
+}

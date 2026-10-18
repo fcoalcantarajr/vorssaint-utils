@@ -39,6 +39,10 @@ struct CodexProfileLimitsState: Equatable, Identifiable {
 /// at a time: when the AI page shows them and they are due, or when a card
 /// or Settings asks, and never while the island is away or Codex is off.
 final class CodexProfileLimitsService: ObservableObject {
+    static let weeklyProfileID = "weekly-default"
+    static var defaultDirectory: String {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
+    }
     typealias Reader = (CodexAccountProfile, _ searchPath: String?, BoundedProcessCancellation)
         -> Result<CodexAccountReading, CodexAccountUsageError>
     static let shared = CodexProfileLimitsService()
@@ -56,6 +60,7 @@ final class CodexProfileLimitsService: ObservableObject {
     /// the page closes; the page's own wait for it to show again.
     private var waiting: [(id: String, asked: Bool)] = []
     private var visible = false
+    private var includesWeekly = false
     /// A Terminal window's PATH, asked of the login shell only when the
     /// person checks again for a Codex that was not found, as on the Resets
     /// card: that runs their shell's startup files.
@@ -70,14 +75,24 @@ final class CodexProfileLimitsService: ObservableObject {
 
     /// Only while an account card can show: a hidden Limits card asks nothing.
     var isEnabled: Bool {
-        NotchAgentSupport.isEnabled(in: defaults) && NotchAgentSupport.showsCodexAccounts(in: defaults)
+        NotchAgentSupport.isEnabled(in: defaults)
+            && (NotchAgentSupport.showsCodexAccounts(in: defaults) || weeklyEnabled)
+    }
+
+    private var weeklyEnabled: Bool {
+        includesWeekly && NotchAgentSupport.providers(in: defaults).contains(.codex)
+            && !NotchAgentSupport.hiddenCards(in: defaults).contains(.weekly)
     }
 
     /// Follows the saved homes and whether Codex is on. Asks only what is
     /// due, and only while the page shows.
     func synchronize() {
         if !isEnabled { cancelChecks() }
-        let wanted = CodexAccountProfile.decode(defaults.string(forKey: DefaultsKey.notchAgentsCodexProfiles) ?? "")
+        var wanted = NotchAgentSupport.showsCodexAccounts(in: defaults)
+            ? CodexAccountProfile.decode(defaults.string(forKey: DefaultsKey.notchAgentsCodexProfiles) ?? "") : []
+        if weeklyEnabled, !wanted.contains(where: { $0.directory == Self.defaultDirectory }) {
+            wanted.append(CodexAccountProfile(id: Self.weeklyProfileID, name: "Codex", directory: Self.defaultDirectory))
+        }
         if states.map(\.profile) != wanted {
             let previous = states
             states = wanted.map { profile in
@@ -100,8 +115,8 @@ final class CodexProfileLimitsService: ObservableObject {
     }
 
     /// A Settings preview shows what is known without asking.
-    func pageDidAppear(preview: Bool = false) {
-        if !preview { visible = true }
+    func pageDidAppear(preview: Bool = false, includeWeekly: Bool = false) {
+        if !preview { visible = true; includesWeekly = includeWeekly }
         synchronize()
     }
 

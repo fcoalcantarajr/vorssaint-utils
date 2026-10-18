@@ -22,6 +22,8 @@ final class AgentUsageService: ObservableObject {
     static let shared = AgentUsageService()
 
     @Published private(set) var snapshot = AgentUsageSnapshot()
+    @Published private(set) var weeklyUsage = AgentWeeklyUsage()
+    @Published private(set) var weeklyHistoryFailed = false
     /// When the Claude app last saved the plan's limits; nil when it never has.
     @Published private(set) var claudeAppChecked: Date?
     @Published private(set) var claudeAccountChecking = false
@@ -84,6 +86,9 @@ final class AgentUsageService: ObservableObject {
     private var readerCancellation: Cancellation?
     private var enabled: Set<AgentProvider> = []
     private var store = AgentUsageStore()
+    private var weeklyHistory = AgentWeeklyUsage()
+    private var weeklySaveFailed = false
+    private var claudeWeeklyScope: String?
     private var cursors: [String: AgentLogCursor] = [:]
     private var watcher: AgentLogWatcher?
     private var watchedRoots: [AgentLogRoot] = []
@@ -237,6 +242,22 @@ final class AgentUsageService: ObservableObject {
         }
     }
 
+    /// The existing account reader supplies identified default-home readings;
+    /// unscoped session logs cannot select an account for persistent history.
+    func noteWeeklyCodexLimits(_ reading: AgentLimits?) {
+        guard running, !paused, providers.contains(.codex) else { return }
+        let expectedSession = session
+        queue.async { [self] in
+            guard readerSession == expectedSession, enabled.contains(.codex) else { return }
+            var changed = weeklyHistory.selectAccount(reading?.accountScope, provider: .codex)
+            if let reading, weeklyHistory.record(reading, now: Date()) { changed = true }
+            if changed {
+                weeklySaveFailed = !AgentWeeklyUsageFile.save(weeklyHistory, to: AgentWeeklyUsageFile.url)
+                schedulePublish()
+            }
+        }
+    }
+
     /// Reads local fallbacks immediately and asks Claude for fresh account
     /// limits. A Settings preview reads too, without counting as the page.
     func pageDidAppear(preview: Bool = false) {
@@ -271,6 +292,11 @@ final class AgentUsageService: ObservableObject {
             readerSession = session
             readerCancellation = cancellation
             enabled = providers
+            let weekly = AgentWeeklyUsageFile.load(from: AgentWeeklyUsageFile.url)
+            weeklyHistory = weekly.history
+            weeklyHistory.selectAccount(nil, provider: .codex)
+            weeklyHistory.selectAccount(nil, provider: .claude)
+            weeklySaveFailed = weekly.failed
             store = AgentUsageStore()
             cursors.removeAll()
             // Prices first, so the first read is already priced.
@@ -617,6 +643,15 @@ final class AgentUsageService: ObservableObject {
         if let claudePlan { plans[.claude] = claudePlan }
         if let codex = AgentPlans.codex(planType: store.codexPlan) { plans[.codex] = codex }
         let next = store.snapshot(plans: plans, providers: enabled, now: Date())
+        var weeklyChanged = false
+        for reading in store.limits.values where enabled.contains(reading.provider) {
+            if weeklyHistory.record(reading, now: Date()) { weeklyChanged = true }
+        }
+        if weeklyChanged {
+            weeklySaveFailed = !AgentWeeklyUsageFile.save(weeklyHistory, to: AgentWeeklyUsageFile.url)
+        }
+        let weekly = weeklyHistory
+        let weeklyFailed = weeklySaveFailed
         published = next
         checkBudget(next)
         let checked = enabled.contains(.claude) ? claudeAppSamples.last(where: {
@@ -629,6 +664,8 @@ final class AgentUsageService: ObservableObject {
             if self.claudeAppChecked != checked { self.claudeAppChecked = checked }
             if self.pricesUpdated != prices { self.pricesUpdated = prices }
             if self.snapshot != next { self.snapshot = next }
+            if self.weeklyUsage != weekly { self.weeklyUsage = weekly }
+            if self.weeklyHistoryFailed != weeklyFailed { self.weeklyHistoryFailed = weeklyFailed }
         }
     }
 
@@ -708,16 +745,23 @@ final class AgentUsageService: ObservableObject {
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let account = json["oauthAccount"] as? [String: Any] else {
             claudePlan = nil
+            claudeWeeklyScope = nil
+            weeklyHistory.selectAccount(nil, provider: .claude)
             claudeOrganization = nil
             claudeAccountLimits = nil
             store.clearLimits(.claude)
             return
         }
         let organization = account["organizationUuid"] as? String
-        if organization != claudeOrganization {
+        let scope = AgentWeeklyAccount.scope(
+            identifier: account["accountUuid"] as? String ?? account["emailAddress"] as? String,
+            organization: organization)
+        weeklyHistory.selectAccount(scope, provider: .claude)
+        if organization != claudeOrganization || scope != claudeWeeklyScope {
             claudeAccountLimits = nil
             store.clearLimits(.claude)
         }
+        claudeWeeklyScope = scope
         claudeOrganization = organization
         claudePlan = AgentPlans.claude(organizationType: account["organizationType"] as? String,
                                        rateLimitTier: account["organizationRateLimitTier"] as? String
@@ -753,7 +797,10 @@ final class AgentUsageService: ObservableObject {
         // one at each save the app makes would read as a new window and warn
         // again; newer wins once the account reading is old.
         let recent = account.flatMap { now.timeIntervalSince($0.observedAt) < AgentClaudeAppUsage.freshness ? $0 : nil }
-        if let latest = recent ?? [desktop, account].compactMap({ $0 }).max(by: { $0.observedAt < $1.observedAt }) {
+        if var latest = recent ?? [desktop, account].compactMap({ $0 }).max(by: { $0.observedAt < $1.observedAt }) {
+            // Desktop identifies an organization, not the individual signed
+            // into Code. It remains useful to Limits, but never weekly history.
+            latest.accountScope = latest.source == .account ? claudeWeeklyScope : nil
             store.setLimits(latest)
         } else {
             store.clearLimits(.claude)
@@ -789,7 +836,8 @@ final class AgentUsageService: ObservableObject {
                     self.queue.async {
                         guard self.readerSession == session, self.enabled.contains(.claude) else { return }
                         self.readClaudePlan()
-                        guard self.claudeOrganization == summary.organization else { return }
+                        guard self.claudeOrganization == summary.organization,
+                              self.claudeWeeklyScope == summary.accountScope else { return }
                         self.claudeAccountLimits = summary.limits
                         self.readClaudeApp(now: Date())
                         self.checkLimits()
