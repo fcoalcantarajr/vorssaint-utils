@@ -25,6 +25,7 @@ enum AgentCodexResetForecastTests {
                      "the speculative line spends remaining quota from a real reading to its own deadline")
         suite.expect(AgentWeeklyPlan(sample: sample, now: now)?.reset == actual && sample.resetsAt == actual,
                      "the actual account reset and normal budget remain independent of speculation")
+        comparison(suite, actual: AgentWeeklyPlan(sample: sample, now: now)!, speculative: scenario!)
         suite.expect(forecast.plan(provider: .claude, sample: sample, now: now) == nil,
                      "a public Codex reset never produces a Claude scenario")
         let sooner = AgentWeeklyUsage.Sample(observedAt: now, usedPercent: 40,
@@ -54,6 +55,47 @@ enum AgentCodexResetForecastTests {
         suite.expect(AgentCodexResetForecast.decode(Data(onlyCredits.utf8), fetchedAt: now) == nil,
                      "banked credits alone are not evidence of an automatic global reset")
         source(suite, body: Data(body.utf8), now: now)
+    }
+
+    private static func comparison(_ suite: TestSuite, actual: AgentWeeklyPlan, speculative: AgentWeeklyPlan) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Fortaleza")!
+        let parse = ISO8601DateFormatter()
+        let rows = actual.targets(comparing: speculative, calendar: calendar)
+        suite.expect(rows.count == 7 && Set(rows.map(\.date)).count == 7,
+                     "the comparison unifies weekday targets and both exact deadlines without duplicate days")
+        guard let first = rows.first, let estimated = rows.first(where: \.isSpeculativeReset), let last = rows.last else {
+            suite.expect(false, "comparison rows include the speculative reset and the account reset")
+            return
+        }
+        suite.expect(first.date == parse.date(from: "2026-10-19T20:00:00Z")
+                     && abs(first.actualPercent - 51.42857142857143) < 0.000001
+                     && abs((first.speculativePercent ?? 0) - 60.42553191489362) < 0.000001,
+                     "daily columns evaluate their own linear budgets at the same local 17:00 checkpoint")
+        suite.expect(estimated.date == parse.date(from: "2026-10-22T10:00:00Z")
+                     && estimated.speculativePercent == 100 && !estimated.isActualReset
+                     && abs(estimated.actualPercent - 73.57142857142857) < 0.000001,
+                     "the estimated deadline is an explicit comparison row without changing the real budget")
+        suite.expect(rows.filter { $0.date > estimated.date }.allSatisfy { $0.speculativePercent == nil }
+                     && last.isActualReset && last.actualPercent == 100,
+                     "speculation stops at its deadline instead of inventing a post-reset allowance")
+        let ordinary = actual.targets(comparing: nil, calendar: calendar)
+        suite.expect(ordinary.count == 6 && ordinary.allSatisfy { $0.speculativePercent == nil && !$0.isSpeculativeReset },
+                     "an unavailable or expired scenario leaves the ordinary target schedule intact")
+        let near = parse.date(from: "2026-10-19T20:00:30Z")!
+        let sample = AgentWeeklyUsage.Sample(observedAt: actual.start, usedPercent: 40,
+                                              resetsAt: actual.reset, source: "account")
+        let nearPlan = AgentWeeklyPlan(sample: sample, now: actual.start, speculativeReset: near)!
+        let nearRows = actual.targets(comparing: nearPlan, calendar: calendar)
+        suite.expect(nearRows.count == 6 && nearRows.first?.date == near,
+                     "the speculative deadline replaces an ordinary target in its displayed minute after both schedules are combined")
+        let closeSample = AgentWeeklyUsage.Sample(observedAt: actual.start, usedPercent: 40,
+                                                   resetsAt: near.addingTimeInterval(20), source: "account")
+        let closeActual = AgentWeeklyPlan(sample: closeSample, now: actual.start)!
+        let closeRows = closeActual.targets(comparing: nearPlan, calendar: calendar)
+        suite.expect(closeRows.count == 2 && closeRows.first?.isSpeculativeReset == true
+                     && closeRows.last?.isActualReset == true,
+                     "two distinct reset deadlines in one displayed minute are both preserved")
     }
 
     private static func source(_ suite: TestSuite, body: Data, now: Date) {

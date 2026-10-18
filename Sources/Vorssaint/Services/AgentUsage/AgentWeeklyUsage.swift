@@ -132,6 +132,14 @@ struct AgentWeeklyPlan {
         let date: Date
         let usedPercent: Double
     }
+    struct Target: Identifiable {
+        let date: Date
+        let actualPercent: Double
+        let speculativePercent: Double?
+        let isActualReset: Bool
+        let isSpeculativeReset: Bool
+        var id: Date { date }
+    }
     let start: Date
     let reset: Date
     let initialPercent: Double
@@ -148,6 +156,27 @@ struct AgentWeeklyPlan {
     func used(at date: Date) -> Double {
         let elapsed = min(1, max(0, date.timeIntervalSince(start) / reset.timeIntervalSince(start)))
         return initialPercent + remainingPercent * elapsed
+    }
+
+    /// Compare both budgets at the same local checkpoints, including each
+    /// exact deadline. Nothing is assumed after the speculative reset.
+    func targets(comparing speculative: Self?, calendar: Calendar = .autoupdatingCurrent) -> [Target] {
+        let actualDates = checkpoints(calendar: calendar).map(\.date)
+        let speculativeDates = speculative?.checkpoints(calendar: calendar).map(\.date) ?? []
+        let deadlines = [reset, speculative?.reset].compactMap { $0 }
+        let dates = Set(actualDates + speculativeDates).sorted().filter { date in
+            guard date <= reset else { return false }
+            // Keep both exact deadlines; suppress only ordinary weekday rows
+            // that would repeat a deadline's displayed local minute.
+            return deadlines.contains(date) || !deadlines.contains {
+                calendar.isDate(date, equalTo: $0, toGranularity: .minute)
+            }
+        }
+        return dates.map { date in
+            let estimate = speculative.flatMap { date <= $0.reset ? $0.used(at: date) : nil }
+            return Target(date: date, actualPercent: used(at: date), speculativePercent: estimate,
+                          isActualReset: date == reset, isSpeculativeReset: date == speculative?.reset)
+        }
     }
 
     /// Local 17:00 on working weekdays, plus the source's actual reset even

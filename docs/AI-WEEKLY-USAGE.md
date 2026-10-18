@@ -24,21 +24,28 @@ occupancy, token totals, an API bill, or a forecast of future work.
   the last observation is ten minutes old or the reset has
   passed. The last real value, timestamp and source remain visible.
 - **Daily targets:** cumulative maximum consumption along that straight line,
-  with additional allowance relative to the last reading in a separate column. Targets
-  use 17:00 on local weekdays and the actual reset as a final checkpoint. The
+  with additional allowance relative to the last reading shown alongside each
+  ceiling. Targets use 17:00 on local weekdays and the actual reset as a final checkpoint. The
   local calendar handles weekends and daylight-saving changes; public holidays
-  are not inferred. A three-column table separates the day, cumulative usage
-  ceiling and extra allowance until then. Compact localized dates avoid repeating
+  are not inferred. Without a speculative scenario, a three-column table separates
+  the day, cumulative usage ceiling and extra allowance until then. When a valid
+  Codex estimate is available, the columns compare the account reset and
+  speculative reset side by side; each scenario shows its ceiling and extra
+  allowance. Both exact reset deadlines are included as rows. Values in the
+  speculative column stop at its deadline: a dash after that point avoids
+  assuming a refill or a new allowance. Compact localized dates avoid repeating
   the year and zone in every row; full dates, times and zones remain in tooltips
   and accessibility descriptions. The final account-reset row is highlighted
-  with its actual time. Up to six targets are visible without an inner scroll;
+  with its actual time; the speculative reset has a separate orange row. Up to
+  seven comparison targets are visible without an inner scroll;
   unusually long source deadlines retain a bounded scroll. Each displayed reset
   above the graph still includes a local date, time and zone.
 - **Speculative reset (Codex only):** an orange dotted alternative from the
   latest real observation to an estimated early global reset. It is explicitly
   labeled as a historical mean without a guarantee, separate from the green
   account budget. The source link, check time and estimate expiration are shown.
-  Daily targets continue to use the actual account deadline, not speculation.
+  Its daily-target column is a separate alternative; the actual-account budget
+  and deadline are preserved.
 
 A mid-cycle drop stays visible as observations and never moves the deadline.
 A new source observation after the preceding reported deadline opens the next

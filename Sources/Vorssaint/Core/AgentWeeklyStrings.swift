@@ -29,6 +29,7 @@ struct AgentWeeklyStrings {
     let targetLimit: String
     let targetAllowance: String
     let targetReset: String
+    let targetActual: String
 
     static func localized(_ language: AppLanguage) -> Self {
         switch language {
@@ -58,7 +59,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Day",
                 targetLimit: "Total usage limit",
                 targetAllowance: "Extra until then",
-                targetReset: "Reset")
+                targetReset: "Reset",
+                targetActual: "Account reset")
         case .ptBR:
             return Self(
                 title: "Consumo semanal",
@@ -85,7 +87,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Dia",
                 targetLimit: "Limite acumulado",
                 targetAllowance: "Adicional até lá",
-                targetReset: "Reset")
+                targetReset: "Reset",
+                targetActual: "Reset real")
         case .es:
             return Self(
                 title: "Consumo semanal",
@@ -112,7 +115,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Día",
                 targetLimit: "Límite acumulado",
                 targetAllowance: "Adicional hasta entonces",
-                targetReset: "Reinicio")
+                targetReset: "Reinicio",
+                targetActual: "Reinicio real")
         case .sk:
             return Self(
                 title: "Týždenná spotreba",
@@ -139,7 +143,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Deň",
                 targetLimit: "Celkový limit",
                 targetAllowance: "Navyše dovtedy",
-                targetReset: "Obnovenie")
+                targetReset: "Obnovenie",
+                targetActual: "Skutočné obnovenie")
         case .de:
             return Self(
                 title: "Wöchentlicher Verbrauch",
@@ -166,7 +171,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Tag",
                 targetLimit: "Gesamtverbrauch bis",
                 targetAllowance: "Zusätzlich bis dahin",
-                targetReset: "Zurücksetzen")
+                targetReset: "Zurücksetzen",
+                targetActual: "Kontozurücksetzung")
         case .fr:
             return Self(
                 title: "Consommation hebdomadaire",
@@ -193,7 +199,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Jour",
                 targetLimit: "Limite cumulée",
                 targetAllowance: "Supplément d’ici là",
-                targetReset: "Réinitialisation")
+                targetReset: "Réinitialisation",
+                targetActual: "Réinitialisation réelle")
         case .it:
             return Self(
                 title: "Consumo settimanale",
@@ -220,7 +227,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Giorno",
                 targetLimit: "Limite cumulativo",
                 targetAllowance: "Disponibile fino ad allora",
-                targetReset: "Ripristino")
+                targetReset: "Ripristino",
+                targetActual: "Ripristino effettivo")
         case .ru:
             return Self(
                 title: "Недельный расход",
@@ -247,7 +255,8 @@ struct AgentWeeklyStrings {
                 targetDay: "День",
                 targetLimit: "Общий лимит",
                 targetAllowance: "Дополнительно к сроку",
-                targetReset: "Сброс")
+                targetReset: "Сброс",
+                targetActual: "Сброс счёта")
         case .tr:
             return Self(
                 title: "Haftalık kullanım",
@@ -274,7 +283,8 @@ struct AgentWeeklyStrings {
                 targetDay: "Gün",
                 targetLimit: "Toplam kullanım sınırı",
                 targetAllowance: "O zamana kadar ek",
-                targetReset: "Sıfırlama")
+                targetReset: "Sıfırlama",
+                targetActual: "Hesap sıfırlaması")
         case .ja:
             return Self(
                 title: "週間使用量",
@@ -301,7 +311,8 @@ struct AgentWeeklyStrings {
                 targetDay: "日付",
                 targetLimit: "累計使用上限",
                 targetAllowance: "その時点までの追加分",
-                targetReset: "リセット")
+                targetReset: "リセット",
+                targetActual: "アカウントのリセット")
         case .ko:
             return Self(
                 title: "주간 사용량",
@@ -328,7 +339,8 @@ struct AgentWeeklyStrings {
                 targetDay: "날짜",
                 targetLimit: "누적 사용 한도",
                 targetAllowance: "그때까지 추가 사용량",
-                targetReset: "초기화")
+                targetReset: "초기화",
+                targetActual: "계정 초기화")
         case .uk:
             return Self(
                 title: "Тижневе споживання",
@@ -355,7 +367,8 @@ struct AgentWeeklyStrings {
                 targetDay: "День",
                 targetLimit: "Загальний ліміт",
                 targetAllowance: "Додатково до строку",
-                targetReset: "Скидання")
+                targetReset: "Скидання",
+                targetActual: "Скидання рахунку")
         case .zhHans:
             return Self(
                 title: "每周用量",
@@ -382,7 +395,8 @@ struct AgentWeeklyStrings {
                 targetDay: "日期",
                 targetLimit: "累计使用上限",
                 targetAllowance: "届时可额外使用",
-                targetReset: "重置")
+                targetReset: "重置",
+                targetActual: "账户重置")
         case .zhTW:
             return Self(
                 title: "每週用量",
@@ -409,7 +423,8 @@ struct AgentWeeklyStrings {
                 targetDay: "日期",
                 targetLimit: "累計使用上限",
                 targetAllowance: "屆時可額外使用",
-                targetReset: "重設")
+                targetReset: "重設",
+                targetActual: "帳號重設")
         case .zhHK:
             return Self(
                 title: "每週用量",
@@ -436,7 +451,8 @@ struct AgentWeeklyStrings {
                 targetDay: "日期",
                 targetLimit: "累計使用上限",
                 targetAllowance: "屆時可額外使用",
-                targetReset: "重設")
+                targetReset: "重設",
+                targetActual: "帳戶重設")
         }
     }
 }

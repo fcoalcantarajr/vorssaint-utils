@@ -97,75 +97,114 @@ struct NotchAgentWeeklyCard: View {
                 }
             }
             if let plan {
-                targets(plan)
+                targets(plan, speculative: speculative)
             } else if sample.isStale(at: now) {
                 Text(strings.stale).font(.system(size: 9)).foregroundStyle(.orange)
             }
         }
     }
 
-    private func targets(_ plan: AgentWeeklyPlan) -> some View {
-        let goals = plan.checkpoints()
+    private func targets(_ plan: AgentWeeklyPlan, speculative: AgentWeeklyPlan?) -> some View {
+        let goals = plan.targets(comparing: speculative)
+        let compares = speculative != nil
         return VStack(alignment: .leading, spacing: 7) {
             Text(strings.goals).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Text(strings.targetDay).frame(maxWidth: .infinity, alignment: .leading)
-                Text(strings.targetLimit).frame(maxWidth: .infinity, alignment: .trailing)
-                Text(strings.targetAllowance).frame(maxWidth: .infinity, alignment: .trailing)
+                Text(compares ? strings.targetActual : strings.targetLimit)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text(compares ? strings.speculative : strings.targetAllowance)
+                    .foregroundStyle(compares ? Color.orange : Color.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .font(.system(size: 9)).foregroundStyle(.secondary)
+            .lineLimit(2)
             .padding(.horizontal, 9)
             Group {
-                if goals.count <= 6 {
-                    targetRows(goals, plan: plan)
+                if goals.count <= 7 {
+                    targetRows(goals, plan: plan, compares: compares)
                 } else {
                     // An unusually long source deadline stays bounded. A
-                    // normal weekly plan shows every target without scrolling.
-                    ScrollView { targetRows(goals, plan: plan) }.frame(height: 192)
+                    // normal weekly comparison shows both resets without scrolling.
+                    ScrollView { targetRows(goals, plan: plan, compares: compares) }.frame(height: 252)
                 }
             }
             .background(.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+            if compares {
+                Text(strings.targetLimit + " · " + strings.targetAllowance)
+                    .font(.system(size: 8)).foregroundStyle(.secondary)
+            }
         }
         .padding(.top, 4)
     }
 
-    private func targetRows(_ goals: [AgentWeeklyPlan.Checkpoint], plan: AgentWeeklyPlan) -> some View {
+    private func targetRows(_ goals: [AgentWeeklyPlan.Target], plan: AgentWeeklyPlan, compares: Bool) -> some View {
         VStack(spacing: 0) {
-            ForEach(goals, id: \.date) { goal in
-                targetRow(goal, plan: plan)
+            ForEach(goals) { goal in
+                targetRow(goal, plan: plan, compares: compares)
             }
         }
     }
 
-    private func targetRow(_ goal: AgentWeeklyPlan.Checkpoint, plan: AgentWeeklyPlan) -> some View {
-        let isReset = goal.date == plan.reset
-        let allowance = "+" + (goal.usedPercent - plan.initialPercent).formatted(
-            .number.precision(.fractionLength(0)).locale(locale)) + " " + strings.points
+    private func targetRow(_ goal: AgentWeeklyPlan.Target, plan: AgentWeeklyPlan, compares: Bool) -> some View {
+        let isReset = goal.isActualReset || goal.isSpeculativeReset
+        let tint: Color = goal.isSpeculativeReset ? .orange : provider.tint
+        let allowance = additional(goal.actualPercent, plan: plan)
         let day = goal.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(locale))
-        let resetTime = strings.targetReset + " · " + goal.date.formatted(.dateTime.hour().minute().locale(locale))
-        let accessible = [isReset ? strings.targetReset : strings.targetDay, date(goal.date),
-                          strings.targetLimit + " " + percent(goal.usedPercent),
-                          strings.targetAllowance + " " + allowance].joined(separator: ", ")
+        let resetTime = (goal.isSpeculativeReset ? strings.speculative : strings.targetReset)
+            + " · " + goal.date.formatted(.dateTime.hour().minute().locale(locale))
+        let marker = goal.isSpeculativeReset ? strings.speculative : (goal.isActualReset ? strings.targetReset : strings.targetDay)
+        var descriptions = [marker, date(goal.date),
+                            strings.targetActual + " " + percent(goal.actualPercent),
+                            strings.targetAllowance + " " + allowance]
+        if compares {
+            descriptions.append(strings.speculative + " " + (goal.speculativePercent.map {
+                percent($0) + ", " + strings.targetAllowance + " " + additional($0, plan: plan)
+            } ?? strings.estimateUnavailable))
+        }
+        let accessible = descriptions.joined(separator: ", ")
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(day).font(.system(size: 10, weight: .medium))
-                if isReset { Text(resetTime).font(.system(size: 8)).foregroundStyle(provider.tint) }
+                if isReset { Text(resetTime).font(.system(size: 8)).foregroundStyle(tint) }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Text("≤ " + percent(goal.usedPercent))
-                .font(.system(size: 12, weight: .semibold))
+            budgetCell(goal.actualPercent, plan: plan, extra: compares, tint: .primary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
-            Text(allowance).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            Group {
+                if compares {
+                    budgetCell(goal.speculativePercent, plan: plan, extra: true, tint: .orange)
+                } else {
+                    Text(allowance).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth: .infinity, alignment: .trailing)
         }
         .monospacedDigit()
-        .padding(.horizontal, 9).frame(height: 32)
-        .background(isReset ? provider.tint.opacity(0.09) : Color.clear)
+        .padding(.horizontal, 9).frame(height: compares ? 36 : 32)
+        .background(isReset ? tint.opacity(0.09) : Color.clear)
         .overlay(alignment: .bottom) {
             if !isReset { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 9) }
         }
         .help(date(goal.date))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessible)
+    }
+
+    private func additional(_ percent: Double, plan: AgentWeeklyPlan) -> String {
+        "+" + (percent - plan.initialPercent).formatted(
+            .number.precision(.fractionLength(0)).locale(locale)) + " " + strings.points
+    }
+
+    private func budgetCell(_ value: Double?, plan: AgentWeeklyPlan, extra: Bool, tint: Color) -> some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            if let value {
+                Text("≤ " + percent(value)).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint)
+                if extra {
+                    Text(additional(value, plan: plan)).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            } else {
+                Text("—").font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func chart(_ cycle: AgentWeeklyUsage.Cycle, plan: AgentWeeklyPlan?, speculative: AgentWeeklyPlan?) -> some View {
