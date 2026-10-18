@@ -27,7 +27,13 @@ occupancy, token totals, an API bill, or a forecast of future work.
   with additional allowance relative to the last reading in parentheses. Targets
   use 17:00 on local weekdays and the actual reset as a final checkpoint. The
   local calendar handles weekends and daylight-saving changes; public holidays
-  are not inferred. Each displayed reset includes a local date, time and zone.
+  are not inferred. A three-column table separates the day, cumulative usage
+  ceiling and extra allowance until then. Compact localized dates avoid repeating
+  the year and zone in every row; full dates, times and zones remain in tooltips
+  and accessibility descriptions. The final account-reset row is highlighted
+  with its actual time. Up to six targets are visible without an inner scroll;
+  unusually long source deadlines retain a bounded scroll. Each displayed reset
+  above the graph still includes a local date, time and zone.
 - **Speculative reset (Codex only):** an orange dotted alternative from the
   latest real observation to an estimated early global reset. It is explicitly
   labeled as a historical mean without a guarantee, separate from the green

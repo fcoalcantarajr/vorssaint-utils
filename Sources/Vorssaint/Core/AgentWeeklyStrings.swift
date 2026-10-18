@@ -25,6 +25,10 @@ struct AgentWeeklyStrings {
     let estimateExpires: String
     let estimateChecked: String
     let estimateUnavailable: String
+    let targetDay: String
+    let targetLimit: String
+    let targetAllowance: String
+    let targetReset: String
 
     static func localized(_ language: AppLanguage) -> Self {
         switch language {
@@ -50,7 +54,11 @@ struct AgentWeeklyStrings {
                 speculation: "Historical mean · not guaranteed",
                 estimateExpires: "Expires",
                 estimateChecked: "Checked",
-                estimateUnavailable: "No valid early-reset estimate")
+                estimateUnavailable: "No valid early-reset estimate",
+                targetDay: "Day",
+                targetLimit: "Total usage limit",
+                targetAllowance: "Extra until then",
+                targetReset: "Reset")
         case .ptBR:
             return Self(
                 title: "Consumo semanal",
@@ -73,7 +81,11 @@ struct AgentWeeklyStrings {
                 speculation: "Média histórica · sem garantia",
                 estimateExpires: "Expira",
                 estimateChecked: "Consultado",
-                estimateUnavailable: "Sem estimativa válida de reset antecipado")
+                estimateUnavailable: "Sem estimativa válida de reset antecipado",
+                targetDay: "Dia",
+                targetLimit: "Limite acumulado",
+                targetAllowance: "Adicional até lá",
+                targetReset: "Reset")
         case .es:
             return Self(
                 title: "Consumo semanal",
@@ -96,7 +108,11 @@ struct AgentWeeklyStrings {
                 speculation: "Media histórica · sin garantía",
                 estimateExpires: "Caduca",
                 estimateChecked: "Consultado",
-                estimateUnavailable: "Sin estimación válida de reinicio anticipado")
+                estimateUnavailable: "Sin estimación válida de reinicio anticipado",
+                targetDay: "Día",
+                targetLimit: "Límite acumulado",
+                targetAllowance: "Adicional hasta entonces",
+                targetReset: "Reinicio")
         case .sk:
             return Self(
                 title: "Týždenná spotreba",
@@ -119,7 +135,11 @@ struct AgentWeeklyStrings {
                 speculation: "Historický priemer · bez záruky",
                 estimateExpires: "Platí do",
                 estimateChecked: "Overené",
-                estimateUnavailable: "Bez platného odhadu skoršieho obnovenia")
+                estimateUnavailable: "Bez platného odhadu skoršieho obnovenia",
+                targetDay: "Deň",
+                targetLimit: "Celkový limit",
+                targetAllowance: "Navyše dovtedy",
+                targetReset: "Obnovenie")
         case .de:
             return Self(
                 title: "Wöchentlicher Verbrauch",
@@ -142,7 +162,11 @@ struct AgentWeeklyStrings {
                 speculation: "Historischer Mittelwert · ohne Gewähr",
                 estimateExpires: "Läuft ab",
                 estimateChecked: "Geprüft",
-                estimateUnavailable: "Keine gültige Schätzung für vorzeitiges Zurücksetzen")
+                estimateUnavailable: "Keine gültige Schätzung für vorzeitiges Zurücksetzen",
+                targetDay: "Tag",
+                targetLimit: "Gesamtverbrauch bis",
+                targetAllowance: "Zusätzlich bis dahin",
+                targetReset: "Zurücksetzen")
         case .fr:
             return Self(
                 title: "Consommation hebdomadaire",
@@ -165,7 +189,11 @@ struct AgentWeeklyStrings {
                 speculation: "Moyenne historique · sans garantie",
                 estimateExpires: "Expire",
                 estimateChecked: "Consulté",
-                estimateUnavailable: "Aucune estimation valide de réinitialisation anticipée")
+                estimateUnavailable: "Aucune estimation valide de réinitialisation anticipée",
+                targetDay: "Jour",
+                targetLimit: "Limite cumulée",
+                targetAllowance: "Supplément d’ici là",
+                targetReset: "Réinitialisation")
         case .it:
             return Self(
                 title: "Consumo settimanale",
@@ -188,7 +216,11 @@ struct AgentWeeklyStrings {
                 speculation: "Media storica · nessuna garanzia",
                 estimateExpires: "Scade",
                 estimateChecked: "Verificato",
-                estimateUnavailable: "Nessuna stima valida di ripristino anticipato")
+                estimateUnavailable: "Nessuna stima valida di ripristino anticipato",
+                targetDay: "Giorno",
+                targetLimit: "Limite cumulativo",
+                targetAllowance: "Disponibile fino ad allora",
+                targetReset: "Ripristino")
         case .ru:
             return Self(
                 title: "Недельный расход",
@@ -211,7 +243,11 @@ struct AgentWeeklyStrings {
                 speculation: "Среднее по истории · без гарантии",
                 estimateExpires: "Истекает",
                 estimateChecked: "Проверено",
-                estimateUnavailable: "Нет действительной оценки досрочного сброса")
+                estimateUnavailable: "Нет действительной оценки досрочного сброса",
+                targetDay: "День",
+                targetLimit: "Общий лимит",
+                targetAllowance: "Дополнительно к сроку",
+                targetReset: "Сброс")
         case .tr:
             return Self(
                 title: "Haftalık kullanım",
@@ -234,7 +270,11 @@ struct AgentWeeklyStrings {
                 speculation: "Geçmiş ortalaması · garanti yok",
                 estimateExpires: "Son geçerlilik",
                 estimateChecked: "Kontrol edildi",
-                estimateUnavailable: "Geçerli erken sıfırlama tahmini yok")
+                estimateUnavailable: "Geçerli erken sıfırlama tahmini yok",
+                targetDay: "Gün",
+                targetLimit: "Toplam kullanım sınırı",
+                targetAllowance: "O zamana kadar ek",
+                targetReset: "Sıfırlama")
         case .ja:
             return Self(
                 title: "週間使用量",
@@ -257,7 +297,11 @@ struct AgentWeeklyStrings {
                 speculation: "過去の平均 · 保証なし",
                 estimateExpires: "有効期限",
                 estimateChecked: "確認日時",
-                estimateUnavailable: "有効な早期リセット推定なし")
+                estimateUnavailable: "有効な早期リセット推定なし",
+                targetDay: "日付",
+                targetLimit: "累計使用上限",
+                targetAllowance: "その時点までの追加分",
+                targetReset: "リセット")
         case .ko:
             return Self(
                 title: "주간 사용량",
@@ -280,7 +324,11 @@ struct AgentWeeklyStrings {
                 speculation: "과거 평균 · 보장 없음",
                 estimateExpires: "만료",
                 estimateChecked: "확인",
-                estimateUnavailable: "유효한 조기 초기화 추정 없음")
+                estimateUnavailable: "유효한 조기 초기화 추정 없음",
+                targetDay: "날짜",
+                targetLimit: "누적 사용 한도",
+                targetAllowance: "그때까지 추가 사용량",
+                targetReset: "초기화")
         case .uk:
             return Self(
                 title: "Тижневе споживання",
@@ -303,7 +351,11 @@ struct AgentWeeklyStrings {
                 speculation: "Історичне середнє · без гарантії",
                 estimateExpires: "Діє до",
                 estimateChecked: "Перевірено",
-                estimateUnavailable: "Немає чинної оцінки дострокового скидання")
+                estimateUnavailable: "Немає чинної оцінки дострокового скидання",
+                targetDay: "День",
+                targetLimit: "Загальний ліміт",
+                targetAllowance: "Додатково до строку",
+                targetReset: "Скидання")
         case .zhHans:
             return Self(
                 title: "每周用量",
@@ -326,7 +378,11 @@ struct AgentWeeklyStrings {
                 speculation: "历史平均值 · 不保证",
                 estimateExpires: "到期",
                 estimateChecked: "查询时间",
-                estimateUnavailable: "暂无有效的提前重置估计")
+                estimateUnavailable: "暂无有效的提前重置估计",
+                targetDay: "日期",
+                targetLimit: "累计使用上限",
+                targetAllowance: "届时可额外使用",
+                targetReset: "重置")
         case .zhTW:
             return Self(
                 title: "每週用量",
@@ -349,7 +405,11 @@ struct AgentWeeklyStrings {
                 speculation: "歷史平均值 · 不保證",
                 estimateExpires: "到期",
                 estimateChecked: "查詢時間",
-                estimateUnavailable: "暫無有效的提前重設估計")
+                estimateUnavailable: "暫無有效的提前重設估計",
+                targetDay: "日期",
+                targetLimit: "累計使用上限",
+                targetAllowance: "屆時可額外使用",
+                targetReset: "重設")
         case .zhHK:
             return Self(
                 title: "每週用量",
@@ -372,7 +432,11 @@ struct AgentWeeklyStrings {
                 speculation: "歷史平均值 · 不保證",
                 estimateExpires: "到期",
                 estimateChecked: "查詢時間",
-                estimateUnavailable: "暫無有效的提前重設估計")
+                estimateUnavailable: "暫無有效的提前重設估計",
+                targetDay: "日期",
+                targetLimit: "累計使用上限",
+                targetAllowance: "屆時可額外使用",
+                targetReset: "重設")
         }
     }
 }

@@ -77,7 +77,7 @@ enum AgentWeeklyUsageTests {
         for language in AppLanguage.allCases {
             let strings = AgentWeeklyStrings.localized(language)
             let values = Mirror(reflecting: strings).children.compactMap { $0.value as? String }
-            suite.expect(values.count == 21 && values.allSatisfy { !$0.isEmpty }
+            suite.expect(values.count == 25 && values.allSatisfy { !$0.isEmpty }
                          && strings.title == FeatureStrings.notchAgents(language).card(.weekly),
                          "weekly usage is localized consistently for \(language.rawValue)")
         }

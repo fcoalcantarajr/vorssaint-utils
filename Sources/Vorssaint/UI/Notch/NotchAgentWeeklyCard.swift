@@ -97,23 +97,75 @@ struct NotchAgentWeeklyCard: View {
                 }
             }
             if let plan {
-                Text(strings.goals).font(.system(size: 9)).foregroundStyle(.secondary)
-                // A bounded scroll keeps every daily target available inside
-                // a card whose height the island's layout already knows.
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(plan.checkpoints(), id: \.date) { goal in
-                            Text(date(goal.date) + "  ≤ " + percent(goal.usedPercent)
-                                 + "  (+" + (goal.usedPercent - sample.usedPercent).formatted(
-                                    .number.precision(.fractionLength(0)).locale(locale)) + " " + strings.points + ")")
-                                .font(.system(size: 9)).monospacedDigit()
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(height: 36)
+                targets(plan)
             } else if sample.isStale(at: now) {
                 Text(strings.stale).font(.system(size: 9)).foregroundStyle(.orange)
             }
         }
+    }
+
+    private func targets(_ plan: AgentWeeklyPlan) -> some View {
+        let goals = plan.checkpoints()
+        return VStack(alignment: .leading, spacing: 7) {
+            Text(strings.goals).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Text(strings.targetDay).frame(maxWidth: .infinity, alignment: .leading)
+                Text(strings.targetLimit).frame(maxWidth: .infinity, alignment: .trailing)
+                Text(strings.targetAllowance).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .font(.system(size: 9)).foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            Group {
+                if goals.count <= 6 {
+                    targetRows(goals, plan: plan)
+                } else {
+                    // An unusually long source deadline stays bounded. A
+                    // normal weekly plan shows every target without scrolling.
+                    ScrollView { targetRows(goals, plan: plan) }.frame(height: 192)
+                }
+            }
+            .background(.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(.top, 4)
+    }
+
+    private func targetRows(_ goals: [AgentWeeklyPlan.Checkpoint], plan: AgentWeeklyPlan) -> some View {
+        VStack(spacing: 0) {
+            ForEach(goals, id: \.date) { goal in
+                targetRow(goal, plan: plan)
+            }
+        }
+    }
+
+    private func targetRow(_ goal: AgentWeeklyPlan.Checkpoint, plan: AgentWeeklyPlan) -> some View {
+        let isReset = goal.date == plan.reset
+        let allowance = "+" + (goal.usedPercent - plan.initialPercent).formatted(
+            .number.precision(.fractionLength(0)).locale(locale)) + " " + strings.points
+        let day = goal.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(locale))
+        let resetTime = strings.targetReset + " · " + goal.date.formatted(.dateTime.hour().minute().locale(locale))
+        let accessible = [isReset ? strings.targetReset : strings.targetDay, date(goal.date),
+                          strings.targetLimit + " " + percent(goal.usedPercent),
+                          strings.targetAllowance + " " + allowance].joined(separator: ", ")
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(day).font(.system(size: 10, weight: .medium))
+                if isReset { Text(resetTime).font(.system(size: 8)).foregroundStyle(provider.tint) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Text("≤ " + percent(goal.usedPercent))
+                .font(.system(size: 12, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            Text(allowance).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .monospacedDigit()
+        .padding(.horizontal, 9).frame(height: 32)
+        .background(isReset ? provider.tint.opacity(0.09) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if !isReset { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5).padding(.horizontal, 9) }
+        }
+        .help(date(goal.date))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessible)
     }
 
     private func chart(_ cycle: AgentWeeklyUsage.Cycle, plan: AgentWeeklyPlan?, speculative: AgentWeeklyPlan?) -> some View {
