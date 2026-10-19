@@ -24,6 +24,7 @@ enum CodexAccountLimitsTests {
             lifecycle(suite, profiles: profiles)
             weeklyLifecycle(suite, profiles: profiles)
             weeklyForwarding(suite)
+            weeklyRecreation(suite)
             try weeklySymlink(suite, root: root)
         } catch { suite.expect(false, "Codex account contract: \(error)") }
     }
@@ -290,6 +291,8 @@ enum CodexAccountLimitsTests {
         private var stopped: [String] = []
         private var holding = false
         private var failures: [String: CodexAccountUsageError] = [:]
+        private let reading: CodexAccountReading?
+        init(reading: CodexAccountReading? = nil) { self.reading = reading }
         var calls: [String] { lock.withLock { asked.map(\.id) } }
         var paths: [String?] { lock.withLock { asked.map(\.path) } }
         /// The checks that ended because they were cancelled.
@@ -307,6 +310,7 @@ enum CodexAccountLimitsTests {
                 return .failure(.cancelled)
             }
             if let failure = lock.withLock({ failures[profile.id] }) { return .failure(failure) }
+            if let reading { return .success(reading) }
             let window = AgentLimitWindow(id: "codex.300", kind: .session, minutes: 300, scope: nil, usedPercent: 42,
                                           resetsAt: Date().addingTimeInterval(3600))
             return .success(CodexAccountReading(limits: AgentLimits(provider: .codex, windows: [window], observedAt: Date(),
@@ -508,6 +512,61 @@ enum CodexAccountLimitsTests {
         host.forwardWeeklyCodex([state])
         suite.expect(host.usage.history.current(.codex) == nil && host.usage.history.cycles.count == 1,
                      "a sign-out clears the selected Weekly account without deleting its observations")
+    }
+
+    private static func weeklyRecreation(_ suite: TestSuite) {
+        let domain = "com.vorssaint.tests.weekly-recreation." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
+        for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
+        defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
+        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+        defaults.set("", forKey: DefaultsKey.notchAgentsCodexProfiles)
+        let now = Date()
+        let limits = AgentLimits(provider: .codex, windows: [
+            AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                             usedPercent: 42, resetsAt: now.addingTimeInterval(3600))
+        ], observedAt: now, source: .account, accountScope: "recreation-account")
+        let probe = Probe(reading: CodexAccountReading(limits: limits, plan: "Plus"))
+        let service = CodexProfileLimitsService(defaults: defaults, reader: probe.read, loginShellPath: { nil })
+        defer { service.pause() }
+        let host = WeeklyForwardHost()
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        host.forwardWeeklyCodex(service.states)
+        let original = host.usage.history.current(.codex)
+        suite.expect(original?.samples.count == 1, "a successful transient Weekly check selects its genuine observation")
+        for failure in [CodexAccountUsageError.unavailable, .outdated, .missingCLI] {
+            service.pageDidDisappear()
+            host.forwardWeeklyCodex(service.states)
+            suite.expect(service.states.isEmpty && host.usage.history.current(.codex) == original,
+                         "removing the transient Weekly state leaves its history selected")
+            probe.hold(true)
+            probe.fail(CodexProfileLimitsService.weeklyProfileID, failure)
+            service.pageDidAppear(includeWeekly: true)
+            host.forwardWeeklyCodex(service.states)
+            suite.expect(service.states.first?.checking == true && service.states.first?.limits == nil
+                         && host.usage.history.current(.codex) == original,
+                         "reopening Weekly keeps selected observations while its new check runs")
+            probe.hold(false)
+            wait { service.states.allSatisfy { !$0.checking } }
+            host.forwardWeeklyCodex(service.states)
+            suite.expect(service.states.first?.failure == failure && host.usage.history.current(.codex) == original,
+                         "an inconclusive first check after reopening cannot hide Weekly observations: \(failure)")
+        }
+        for failure in [CodexAccountUsageError.needsSignIn, .invalidProfile] {
+            service.pageDidDisappear()
+            host.usage.noteWeeklyCodexLimits(limits)
+            probe.fail(CodexProfileLimitsService.weeklyProfileID, failure)
+            service.pageDidAppear(includeWeekly: true)
+            wait { service.states.allSatisfy { !$0.checking } }
+            host.forwardWeeklyCodex(service.states)
+            suite.expect(service.states.first?.failure == failure && host.usage.history.current(.codex) == nil
+                         && host.usage.history.cycles.count == 1,
+                         "a definitive recreated-home failure clears selection without deleting history: \(failure)")
+        }
     }
 
     private static func weeklySymlink(_ suite: TestSuite, root: URL) throws {

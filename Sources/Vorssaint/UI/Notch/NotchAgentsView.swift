@@ -94,10 +94,11 @@ struct NotchAgentsView: View {
     }
 
     private func forwardWeeklyCodex(_ states: [CodexProfileLimitsState]) {
-        let state = states.first { CodexProfileLimitsService.isDefaultHome($0.profile) }
-        // The reader retains the last limits after inconclusive checks and
-        // clears them only when sign-in or the profile becomes invalid.
-        usage.noteWeeklyCodexLimits(state?.limits)
+        // A recreated transient home has no reading yet. Only a definitive
+        // account failure can invalidate the previously selected history.
+        guard let state = states.first(where: { CodexProfileLimitsService.isDefaultHome($0.profile) }),
+              state.limits != nil || state.failure == .needsSignIn || state.failure == .invalidProfile else { return }
+        usage.noteWeeklyCodexLimits(state.limits)
     }
 
     private var periodMenu: some View {
