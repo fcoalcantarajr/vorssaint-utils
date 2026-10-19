@@ -103,6 +103,7 @@ struct AgentWeeklyUsage: Codable, Equatable {
     @discardableResult
     mutating func prune(now: Date) -> Bool {
         let before = cycles.reduce(0) { $0 + $1.samples.count }
+        let scopesBefore = activeScopes.count
         let cutoff = now.addingTimeInterval(-91 * 86_400)
         for index in cycles.indices { cycles[index].samples.removeAll { $0.observedAt < cutoff } }
         cycles.removeAll { $0.samples.isEmpty }
@@ -112,7 +113,12 @@ struct AgentWeeklyUsage: Codable, Equatable {
             cycles[index].samples.removeFirst(removed)
             excess -= removed
         }
-        return cycles.reduce(0) { $0 + $1.samples.count } != before
+        // A selected account with no surviving observations must not leave
+        // its digest in an otherwise expired archive indefinitely.
+        activeScopes = activeScopes.filter { provider, scope in
+            cycles.contains { $0.provider == provider && $0.accountScope == scope }
+        }
+        return cycles.reduce(0) { $0 + $1.samples.count } != before || activeScopes.count != scopesBefore
     }
 
     var valid: Bool {

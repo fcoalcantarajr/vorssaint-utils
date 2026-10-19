@@ -137,6 +137,16 @@ enum AgentWeeklyUsageTests {
         suite.expect(!old.record(reading(at: expired), now: now), "a cached observation adds no new sample")
         suite.expect(old.prune(now: now) && old.cycles.isEmpty && !old.prune(now: now),
                      "periodic maintenance expires history despite a rejected cached observation and is idempotent")
+        let prunedText = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        suite.expect(!prunedText.contains("retention-account"),
+                     "load-time pruning removes the last expired account digest from the archive")
+        var orphan = AgentWeeklyUsage()
+        orphan.selectAccount("orphan-account", provider: .codex)
+        suite.expect(orphan.prune(now: now) && !orphan.prune(now: now),
+                     "pruning reports orphan-only selection removal once even without samples")
+        suite.expect(AgentWeeklyUsageFile.save(orphan, to: url)
+                     && !((try? String(contentsOf: url, encoding: .utf8)) ?? "").contains("orphan-account"),
+                     "orphan-only account selections cannot persist indefinitely")
         let boundary = now.addingTimeInterval(-91 * 86_400)
         var exact = AgentWeeklyUsage()
         _ = exact.record(reading(at: boundary), now: boundary)
