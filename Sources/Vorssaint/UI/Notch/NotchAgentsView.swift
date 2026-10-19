@@ -94,8 +94,10 @@ struct NotchAgentsView: View {
     }
 
     private func forwardWeeklyCodex(_ states: [CodexProfileLimitsState]) {
-        let state = states.first { $0.profile.directory == CodexProfileLimitsService.defaultDirectory }
-        usage.noteWeeklyCodexLimits(state?.failure == nil && state?.checking == false ? state?.limits : nil)
+        let state = states.first { CodexProfileLimitsService.isDefaultHome($0.profile) }
+        // The reader retains the last limits after inconclusive checks and
+        // clears them only when sign-in or the profile becomes invalid.
+        usage.noteWeeklyCodexLimits(state?.limits)
     }
 
     private var periodMenu: some View {
@@ -156,7 +158,7 @@ struct NotchAgentsView: View {
 
     private func weeklyStatus(_ provider: AgentProvider) -> String? {
         if provider == .claude { return usage.claudeAccountFailure.map { text.claudeCode($0) } }
-        let state = accounts.states.first { $0.profile.directory == CodexProfileLimitsService.defaultDirectory }
+        let state = accounts.states.first { CodexProfileLimitsService.isDefaultHome($0.profile) }
         let strings = FeatureStrings.codexAccounts(l10n.language)
         return state?.failure.map { failure in
             switch failure {

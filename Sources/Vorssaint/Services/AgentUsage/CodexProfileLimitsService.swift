@@ -43,6 +43,12 @@ final class CodexProfileLimitsService: ObservableObject {
     static var defaultDirectory: String {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
     }
+    /// Saved homes can name either a symlink or its resolved directory.
+    static func isDefaultHome(_ profile: CodexAccountProfile,
+                              directory: String = CodexProfileLimitsService.defaultDirectory) -> Bool {
+        URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path
+            == URL(fileURLWithPath: directory).resolvingSymlinksInPath().path
+    }
     typealias Reader = (CodexAccountProfile, _ searchPath: String?, BoundedProcessCancellation)
         -> Result<CodexAccountReading, CodexAccountUsageError>
     static let shared = CodexProfileLimitsService()
@@ -53,6 +59,7 @@ final class CodexProfileLimitsService: ObservableObject {
 
     private let queue = DispatchQueue(label: "com.vorssaint.codex-profile-limits", qos: .utility)
     private let defaults: UserDefaults
+    private let weeklyDirectory: String
     private let reader: Reader?
     private let loginShellPath: () -> String?
     private var running: (id: String, cancellation: BoundedProcessCancellation)?
@@ -67,8 +74,10 @@ final class CodexProfileLimitsService: ObservableObject {
     private var shellPath: String?
 
     init(defaults: UserDefaults = .standard, reader: Reader? = nil,
+         defaultDirectory: String = CodexProfileLimitsService.defaultDirectory,
          loginShellPath: @escaping () -> String? = AgentCodexServer.loginShellPath) {
         self.defaults = defaults
+        weeklyDirectory = defaultDirectory
         self.reader = reader
         self.loginShellPath = loginShellPath
     }
@@ -90,8 +99,8 @@ final class CodexProfileLimitsService: ObservableObject {
         if !isEnabled { cancelChecks() }
         var wanted = NotchAgentSupport.showsCodexAccounts(in: defaults)
             ? CodexAccountProfile.decode(defaults.string(forKey: DefaultsKey.notchAgentsCodexProfiles) ?? "") : []
-        if weeklyEnabled, !wanted.contains(where: { $0.directory == Self.defaultDirectory }) {
-            wanted.append(CodexAccountProfile(id: Self.weeklyProfileID, name: "Codex", directory: Self.defaultDirectory))
+        if weeklyEnabled, !wanted.contains(where: { Self.isDefaultHome($0, directory: weeklyDirectory) }) {
+            wanted.append(CodexAccountProfile(id: Self.weeklyProfileID, name: "Codex", directory: weeklyDirectory))
         }
         if states.map(\.profile) != wanted {
             let previous = states

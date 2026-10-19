@@ -23,6 +23,8 @@ enum CodexAccountLimitsTests {
             try conversations(suite, root: root, profiles: profiles)
             lifecycle(suite, profiles: profiles)
             weeklyLifecycle(suite, profiles: profiles)
+            weeklyForwarding(suite)
+            try weeklySymlink(suite, root: root)
         } catch { suite.expect(false, "Codex account contract: \(error)") }
     }
 
@@ -463,6 +465,78 @@ enum CodexAccountLimitsTests {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         suite.expect(probe.calls.count == beforeOpen + 1 && service.timer == nil && service.states.allSatisfy { !$0.checking },
                      "with Codex turned off no account is checked, even when asked")
+    }
+
+    class WeeklyForwardFixture {
+        final class Usage {
+            var history = AgentWeeklyUsage()
+            func noteWeeklyCodexLimits(_ reading: AgentLimits?) {
+                history.selectAccount(reading?.accountScope, provider: .codex)
+                if let reading { history.record(reading, now: Date()) }
+            }
+        }
+        let usage = Usage()
+    }
+
+    private static func weeklyForwarding(_ suite: TestSuite) {
+        let now = Date()
+        let profile = CodexAccountProfile(id: UUID().uuidString, name: "Default",
+                                          directory: CodexProfileLimitsService.defaultDirectory)
+        let limits = AgentLimits(provider: .codex, windows: [
+            AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                             usedPercent: 42, resetsAt: now.addingTimeInterval(3600))
+        ], observedAt: now, source: .account, accountScope: "forwarding-account")
+        let host = WeeklyForwardHost()
+        var state = CodexProfileLimitsState(profile: profile, limits: limits)
+        host.forwardWeeklyCodex([state])
+        let original = host.usage.history.current(.codex)
+        state.checking = true
+        host.forwardWeeklyCodex([state])
+        suite.expect(original != nil && host.usage.history.current(.codex) == original,
+                     "an in-flight Codex refresh retains Weekly observations without adding a sample")
+        state.checking = false
+        for failure in [CodexAccountUsageError.unavailable, .outdated, .missingCLI, .cancelled] {
+            state.failure = failure
+            host.forwardWeeklyCodex([state])
+            let current = host.usage.history.current(.codex)
+            suite.expect(current == original && current?.latest.flatMap {
+                AgentWeeklyPlan(sample: $0, now: now.addingTimeInterval(601))
+            } == nil, "an inconclusive Codex refresh retains real history while its budget expires: \(failure)")
+        }
+        state.limits = nil
+        state.failure = .needsSignIn
+        host.forwardWeeklyCodex([state])
+        suite.expect(host.usage.history.current(.codex) == nil && host.usage.history.cycles.count == 1,
+                     "a sign-out clears the selected Weekly account without deleting its observations")
+    }
+
+    private static func weeklySymlink(_ suite: TestSuite, root: URL) throws {
+        let directory = root.appendingPathComponent("default-home")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try Data().write(to: directory.appendingPathComponent("config.toml"))
+        let alias = root.appendingPathComponent("default-alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: directory)
+        let domain = "com.vorssaint.tests.weekly-symlink." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
+        for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
+        defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
+        defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
+        let profile = CodexAccountProfile(id: UUID().uuidString, name: "Saved default", directory: directory.path)
+        defaults.set(CodexAccountProfile.encode([profile]), forKey: DefaultsKey.notchAgentsCodexProfiles)
+        let probe = Probe()
+        let service = CodexProfileLimitsService(defaults: defaults, reader: probe.read, defaultDirectory: alias.path,
+                                                loginShellPath: { nil })
+        defer { service.pause() }
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(service.states.map(\.id) == [profile.id] && probe.calls == [profile.id],
+                     "a saved symlink to the default Codex home runs one check shared by Limits and Weekly")
+        suite.expect(CodexProfileLimitsService.isDefaultHome(profile, directory: alias.path),
+                     "the resolved default home is recognized through its symlink")
     }
 
     private static func weeklyLifecycle(_ suite: TestSuite, profiles: [CodexAccountProfile]) {
