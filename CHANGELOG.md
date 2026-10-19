@@ -7,19 +7,31 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-More reliable mouse scrolling, display controls and battery updates, with fixes for Dynamic Island navigation, Dock Preview, screen capture, mixer tooltips and calculator precision.
+Clipboard history that can expire old items and a hidden Dynamic Island that still shows activity, plus steadier scrolling, AirPlay, displays and battery updates, and many fixes.
+
+### Added
+- Clipboard history can remove items after a set number of days, while pinned items stay. Settings → Clipboard → Keep items for.
+- Dynamic Island set to Hidden until hover can still come into view for activities and indicators, then hide again. Settings → Dynamic Island → Behavior → Opening → Show activity and indicators.
 
 ### Fixed
 - Dynamic Island's Now Playing page shows the Explore button again when Explore is not a floating button, and can grow a little to fit it while a song plays. The System page shows it too where it had no top row, such as on displays without a notch.
-- Smooth scrolling keeps its remaining motion in the original window or scroll area when the pointer moves. New wheel input elsewhere starts there immediately. Thanks to @bebricoOOOOOOf.
-- Dock Preview avoids waiting on a frozen neighboring app when hovering the uncovered Dock. Thanks to @root-daemon.
-- Mirrored displays remain listed with their own brightness controls, including the built-in screen. Thanks to @emreertunc.
-- Battery status updates promptly when connecting or disconnecting power, including when background monitoring uses a longer interval. Thanks to @juanra.
-- Screen capture's dimmed overlay keeps covering the display when switching between screenshot, recording and color picker. Thanks to @RKeyProg.
-- Volume mixer controls show their own tooltips, with the reorder hint kept on each app's icon and name. Thanks to @Chubi01.
-- Command Bar keeps meaningful digits in large calculator results and reused expressions while still hiding small rounding noise. Thanks to @Likheet.
+- Smooth scrolling keeps its remaining motion in the original window or scroll area when the pointer moves. New wheel input elsewhere starts there immediately.
+- Dock Preview avoids waiting on a frozen neighboring app when hovering the uncovered Dock.
+- Mirrored displays remain listed with their own brightness controls, including the built-in screen.
+- Battery status updates promptly when connecting or disconnecting power, including when background monitoring uses a longer interval.
+- Screen capture's dimmed overlay keeps covering the display when switching between screenshot, recording and color picker.
+- Volume mixer controls show their own tooltips, with the reorder hint kept on each app's icon and name.
+- Command Bar keeps meaningful digits in large calculator results and reused expressions while still hiding small rounding noise.
+- App lists in Settings show names without ".app" when the Finder shows all filename extensions.
+- The volume mixer's AirPlay stream pauses once routed apps go quiet, so iPhones and HomePods stop showing the Mac as playing, and sound comes back after pausing from the phone.
+- Command Bar copies a script's output and closes when the script row was reached by part of its name or opened from its shortcut.
+- Settings says when the chosen display keeps Dynamic Island off displays without a notch, such as a monitor beside a MacBook, and offers All displays. Settings → Dynamic Island → Behavior → Display.
+- Focus follows mouse keeps Chrome's address bar suggestions and other pop-ups open when the pointer moves between them and their window.
+- App Switcher, Dock Preview and Watch pause window captures while macOS is slow to check the app's permission to see the screen, which could log you out under heavy load. Thumbnails also stop updating while the displays sleep or the screen is locked.
+- App Updates stops showing false updates for Private Internet Access, and lists apps it can't compare, such as Unified Remote and Android Studio, under Versions not compared.
 
 ### Contributors
+Thanks to @andrewgribben, @bebricoOOOOOOf, @becastellani, @bharathvbcr, @cdbrandt729-code, @Chubi01, @Dusk-afk, @emreertunc, @iltonandrew, @jainnam-1993, @juanra, @Likheet, @marianhoenscheid, @mendozal, @mikeknight85, @mmoradi97, @mschoeffmann, @pedro-fontinele, @RKeyProg, @rohanod, @root-daemon, @StudioKeys and @webipsum.
 Feedback: Brain.
 
 ## [3.4.2-beta.1] - 2026-10-18
