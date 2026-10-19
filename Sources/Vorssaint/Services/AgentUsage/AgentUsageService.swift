@@ -752,7 +752,7 @@ final class AgentUsageService: ObservableObject {
               let account = json["oauthAccount"] as? [String: Any] else {
             claudePlan = nil
             claudeWeeklyScope = nil
-            weeklyHistory.selectAccount(nil, provider: .claude)
+            if weeklyHistory.selectAccount(nil, provider: .claude) { schedulePublish() }
             claudeOrganization = nil
             claudeAccountLimits = nil
             store.clearLimits(.claude)
@@ -762,7 +762,7 @@ final class AgentUsageService: ObservableObject {
         let scope = AgentWeeklyAccount.scope(
             identifier: account["accountUuid"] as? String ?? account["emailAddress"] as? String,
             organization: organization)
-        weeklyHistory.selectAccount(scope, provider: .claude)
+        if weeklyHistory.selectAccount(scope, provider: .claude) { schedulePublish() }
         if organization != claudeOrganization || scope != claudeWeeklyScope {
             claudeAccountLimits = nil
             store.clearLimits(.claude)

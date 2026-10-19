@@ -14,6 +14,11 @@ enum AgentClaudeServerTests {
 
     class Fixture {
         var claudeWeeklyScope: String?
+        var weeklyHistory = AgentWeeklyUsage()
+        var claudeProfileModified: Date?
+        var claudePlan: AgentPlan?
+        var weeklyPublications: [AgentWeeklyUsage] = []
+        func schedulePublish() { weeklyPublications.append(weeklyHistory) }
         var running = true
         var paused = false
         var online = true
@@ -47,6 +52,7 @@ enum AgentClaudeServerTests {
     }
 
     static func run(_ suite: TestSuite) {
+        accountSelection(suite)
         alerts(suite)
         checks(suite)
         discovery(suite)
@@ -201,6 +207,54 @@ enum AgentClaudeServerTests {
 
     /// The production reading and alert methods, replayed tick by tick over
     /// what the account and the Claude app report.
+    private static func accountSelection(_ suite: TestSuite) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let profile = folder.appendingPathComponent(".claude.json")
+        let host = Host(), now = Date()
+        host.home = folder
+        host.claudeOrganization = "same-organization"
+        host.claudeAccountFailure = .unreachable
+        host.claudeAppSamples = [.init(date: now, organization: "same-organization", used: ["sd": 40])]
+        let scope = AgentWeeklyAccount.scope(identifier: "account-a", organization: "same-organization")!
+        host.claudeWeeklyScope = scope
+        let reading = AgentLimits(provider: .claude, windows: [
+            AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                             usedPercent: 30, resetsAt: now.addingTimeInterval(604_800))
+        ], observedAt: now, source: .account, accountScope: scope)
+        host.weeklyHistory.record(reading, now: now)
+        func writeAccount(_ identifier: String, modified: Date) throws {
+            try JSONSerialization.data(withJSONObject: ["oauthAccount": [
+                "accountUuid": identifier, "organizationUuid": "same-organization", "organizationType": "claude_pro"
+            ]]).write(to: profile)
+            try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: profile.path)
+        }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try writeAccount("account-a", modified: now)
+            host.readClaudePlan()
+            host.readClaudeApp(now: now)
+            let plan = host.claudePlan, desktop = host.store.limits[.claude]
+            suite.expect(host.weeklyPublications.isEmpty && desktop?.source == .claudeApp,
+                         "unchanged Claude identity uses its desktop fallback without a redundant history publication")
+            try writeAccount("account-b", modified: now.addingTimeInterval(1))
+            host.readClaudePlan()
+            host.readClaudeApp(now: now)
+            suite.expect(host.claudePlan == plan && host.store.limits[.claude] == desktop,
+                         "switching individuals in the same organization and plan can leave all displayed limits unchanged")
+            suite.expect(host.weeklyPublications.count == 1
+                         && host.weeklyPublications.last?.current(.claude) == nil
+                         && host.weeklyHistory.cycles.count == 1,
+                         "an identity-only Claude change publishes the new selection without exposing or deleting the old account history")
+            host.readClaudePlan()
+            suite.expect(host.weeklyPublications.count == 1, "an unchanged account file does not publish again")
+            try FileManager.default.removeItem(at: profile)
+            host.readClaudePlan()
+            suite.expect(host.weeklyPublications.count == 2 && host.claudeWeeklyScope == nil,
+                         "losing the Claude account file also publishes removal of its selected history")
+        } catch { suite.expect(false, "Claude account-selection fixture: \(error)") }
+    }
+
     private static func alerts(_ suite: TestSuite) {
         let at = { (time: String) in AgentTimestamp.parse(time)! }
         let folder = FileManager.default.temporaryDirectory.appending(path: "vorssaint-claude-alerts-\(UUID())")
