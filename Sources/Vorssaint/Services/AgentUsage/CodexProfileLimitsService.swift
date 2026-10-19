@@ -120,22 +120,23 @@ final class CodexProfileLimitsService: ObservableObject {
         synchronize()
     }
 
-    /// A check under way finishes and keeps its time, so looking at the page
-    /// again does not start it over.
+    /// Saved-home checks under way can finish. The page-only Weekly home
+    /// must leave the shared states before Settings can ask to refresh them.
     func pageDidDisappear() {
         visible = false
-        syncTimer()
+        includesWeekly = false
         let dropped = Set(waiting.filter { !$0.asked }.map(\.id))
-        guard !dropped.isEmpty else { return }
         waiting.removeAll { !$0.asked }
         for index in states.indices where dropped.contains(states[index].id) { states[index].checking = false }
+        synchronize()
     }
 
     /// The island is away, the section stops or Codex is off: nothing runs.
     func pause() {
         visible = false
+        includesWeekly = false
         cancelChecks()
-        syncTimer()
+        synchronize()
     }
 
     /// Queues the homes that are due, or, when the person asks, `id` or every

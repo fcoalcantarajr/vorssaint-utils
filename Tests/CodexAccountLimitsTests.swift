@@ -490,5 +490,41 @@ enum CodexAccountLimitsTests {
         suite.expect(service.timer == nil && service.states.isEmpty
                      && probe.cancelled == [CodexProfileLimitsService.weeklyProfileID],
                      "hiding Weekly cancels its default-account check and timer without reviving hidden accounts")
+        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+        probe.hold(false)
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        service.pageDidDisappear()
+        let beforeManual = probe.calls.count
+        service.refresh(force: true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        suite.expect(service.states.isEmpty && service.timer == nil && probe.calls.count == beforeManual,
+                     "closing Weekly removes its virtual profile so Settings cannot refresh a hidden default home")
+        defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        service.pageDidDisappear()
+        let beforeSaved = probe.calls.count
+        service.refresh(force: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(service.states.map(\.id) == profiles.map(\.id)
+                     && Array(probe.calls.dropFirst(beforeSaved)) == profiles.map(\.id),
+                     "Settings refreshes only saved non-default homes after Weekly closes")
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        service.pause()
+        suite.expect(!service.states.contains { $0.id == CodexProfileLimitsService.weeklyProfileID } && service.timer == nil,
+                     "pausing also removes the transient Weekly home from shared settings state")
+        let savedDefault = CodexAccountProfile(id: UUID().uuidString, name: "Main", directory: CodexProfileLimitsService.defaultDirectory)
+        defaults.set(CodexAccountProfile.encode([savedDefault]), forKey: DefaultsKey.notchAgentsCodexProfiles)
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        service.pageDidDisappear()
+        let beforeDefault = probe.calls.count
+        service.refresh(force: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(service.states.map(\.id) == [savedDefault.id]
+                     && Array(probe.calls.dropFirst(beforeDefault)) == [savedDefault.id],
+                     "a default home explicitly saved by the person survives closing Weekly and remains manually refreshable")
     }
 }
