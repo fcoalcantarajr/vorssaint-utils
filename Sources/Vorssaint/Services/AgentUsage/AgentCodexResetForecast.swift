@@ -14,7 +14,7 @@ struct AgentCodexResetForecast {
     static let endpoint = source
     static let maximumSize = 256 << 10
 
-    /// Match Ritmo's reference: the page's observed global reset plus its
+    /// Use the public reference: the page's observed global reset plus its
     /// published all-time median. A different tracker or statistic changes
     /// the scenario, even when both are described as historical estimates.
     static func decode(_ data: Data, fetchedAt: Date) -> Self? {

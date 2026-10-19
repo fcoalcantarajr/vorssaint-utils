@@ -93,8 +93,7 @@ and `AgentCodexServer`:
 
 These CLI interfaces do not announce a future global reset. The separate
 speculative line uses the public [Codex Reset](https://codex-reset.com/) page,
-the same reference as [Ritmo](https://ritmo-de-uso.vercel.app), not account
-credentials. A bounded GET reads the page's `reset-since` global reset timestamp
+not account credentials. A bounded GET reads the page's `reset-since` global reset timestamp
 and the **All-time median gap** in `live-home-rhythm-trend`. The scenario is that
 timestamp plus the published median in days, with each day equal to 86,400 seconds.
 It does not use a recent median, an arithmetic mean, a banked credit timestamp,
@@ -157,6 +156,5 @@ observations. An unreadable, invalid or unknown-version file is preserved rather
 than overwritten; the card shows a warning. Restore the private file from a
 backup, or move it aside while the app is stopped, to start a new history.
 
-The visual concept is inspired by
-[Usage Burndown](https://github.com/fcoalcantarajr/usage-burndown); this is a native
-SwiftUI implementation using Vorssaint's existing service and feature lifecycle.
+This is a native SwiftUI implementation using Vorssaint's existing service and
+feature lifecycle.

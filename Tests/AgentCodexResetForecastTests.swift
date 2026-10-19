@@ -5,7 +5,7 @@ import Foundation
 
 enum AgentCodexResetForecastTests {
     static func run(_ suite: TestSuite) {
-        ritmoReference(suite)
+        publicSourceReference(suite)
         let parse = ISO8601DateFormatter()
         let now = parse.date(from: "2026-10-18T12:00:00Z")!
         // Use the published all-time median, not the recent median or a
@@ -68,19 +68,19 @@ enum AgentCodexResetForecastTests {
         source(suite, body: Data(body.utf8), now: now)
     }
 
-    private static func ritmoReference(_ suite: TestSuite) {
+    private static func publicSourceReference(_ suite: TestSuite) {
         let page = #"<html><div id="reset-since" data-reset-at="2026-10-17T20:41:01.000Z"></div><p id="live-home-rhythm-trend">All-time median gap: 4.0 days · last 30 days: 4.0 days</p></html>"#
         let parse = ISO8601DateFormatter()
         let now = parse.date(from: "2026-10-19T20:43:00Z")!
         let forecast = AgentCodexResetForecast.decode(Data(page.utf8), fetchedAt: now)
         suite.expect(forecast?.estimatedReset == parse.date(from: "2026-10-21T20:41:01Z"),
-                     "Ritmo parity uses codex-reset.com last global reset plus its all-time four-day median")
+                     "the public source reference uses the last global reset plus its all-time four-day median")
         if let forecast {
             let formatter = DateFormatter()
             formatter.timeZone = TimeZone(identifier: "America/Fortaleza")!
             formatter.dateFormat = "dd/MM HH:mm"
             suite.expect(formatter.string(from: forecast.estimatedReset) == "21/10 17:41",
-                         "the reference scenario matches the user's Fortaleza date without a timezone shift")
+                         "the reference scenario matches the Fortaleza date without a timezone shift")
         }
     }
 
