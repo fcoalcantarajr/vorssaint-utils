@@ -51,7 +51,9 @@ final class AgentCodexResetForecastSource: ObservableObject {
 
     private static func download(_ completion: @escaping (Data?) -> Void) -> (() -> Void) {
         let task = AgentDownload.start(AgentCodexResetForecast.endpoint,
-                                       limit: AgentCodexResetForecast.maximumSize, completion: completion)
+                                       limit: AgentCodexResetForecast.maximumSize,
+                                       userAgent: "Vorssaint/\(AppInfo.version) (+https://github.com/vorssaint/vorssaint-utils)",
+                                       completion: completion)
         return { task.cancel() }
     }
 }

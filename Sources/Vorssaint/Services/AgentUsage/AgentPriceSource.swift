@@ -64,9 +64,10 @@ final class AgentDownload: NSObject, URLSessionDataDelegate {
     }
 
     @discardableResult
-    static func start(_ url: URL, limit: Int, completion: @escaping (Data?) -> Void) -> URLSessionDataTask {
+    static func start(_ url: URL, limit: Int, userAgent: String? = nil,
+                      completion: @escaping (Data?) -> Void) -> URLSessionDataTask {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        request.setValue("Vorssaint/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent ?? "Vorssaint/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30

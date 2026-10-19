@@ -5,18 +5,20 @@ import Foundation
 
 enum AgentCodexResetForecastTests {
     static func run(_ suite: TestSuite) {
+        ritmoReference(suite)
         let parse = ISO8601DateFormatter()
         let now = parse.date(from: "2026-10-18T12:00:00Z")!
-        // Regular intervals are 4 and 6 days. The banked credit must not
-        // shorten their five-day mean or become the forecast's anchor.
-        let body = #"{"data":[{"reset_type":"regular","announced_at":"2026-10-07T10:00:00.000Z"},{"reset_type":"regular","announced_at":"2026-10-11T10:00:00Z"},{"reset_type":"regular","announced_at":"2026-10-17T10:00:00Z"},{"reset_type":"banked","announced_at":"2026-10-18T11:00:00Z"}],"pagination":{"has_more":false,"next_cursor":null},"meta":{"api_version":"v1","generated_at":"2026-10-18T11:59:00.000Z"}}"#
+        // Use the published all-time median, not the recent median or a
+        // banked credit's timestamp. Attribute order and quotes can vary.
+        let body = #"<html><div data-reset-at='2026-10-17T10:00:00Z' class='reset-since' id='reset-since'></div><p class='rhythm-trend' id='live-home-rhythm-trend'>All-time median gap: 5.0 days · last 30 days: 2.0 days</p><time id='home-banked-signal-time' datetime='2026-10-18T11:00:00Z'></time></html>"#
         guard let forecast = AgentCodexResetForecast.decode(Data(body.utf8), fetchedAt: now) else {
-            suite.expect(false, "a real public reset feed supplies a speculative deadline")
+            suite.expect(false, "the public reference page supplies a speculative deadline")
             return
         }
         let deadline = parse.date(from: "2026-10-22T10:00:00Z")!
-        suite.expect(forecast.estimatedReset == deadline && forecast.resetCount == 3,
-                     "the historical mean uses distinct executed regular resets, never banked credits")
+        suite.expect(forecast.estimatedReset == deadline && forecast.medianDays == 5
+                     && forecast.lastReset == parse.date(from: "2026-10-17T10:00:00Z"),
+                     "the published all-time median is anchored to the global reset, never a banked credit")
         let actual = parse.date(from: "2026-10-25T12:00:00Z")!
         let sample = AgentWeeklyUsage.Sample(observedAt: now, usedPercent: 40, resetsAt: actual, source: "account")
         let scenario = forecast.plan(provider: .codex, sample: sample, now: now)
@@ -44,17 +46,42 @@ enum AgentCodexResetForecastTests {
         let atDeadline = AgentWeeklyUsage.Sample(observedAt: deadline, usedPercent: 40, resetsAt: actual, source: "account")
         suite.expect(forecast.plan(provider: .codex, sample: atDeadline, now: deadline) == nil,
                      "passing the estimated reset never rolls speculation forward or invents a refill")
-        for changed in [body.replacingOccurrences(of: "v1", with: "v2"),
+        for changed in [body.replacingOccurrences(of: "All-time median gap:", with: "Recent median gap:"),
                         body.replacingOccurrences(of: "2026-10-17T10:00:00Z", with: "2026-10-19T10:00:00Z"),
-                        body.replacingOccurrences(of: "2026-10-11T10:00:00Z", with: "invalid"),
-                        body.replacingOccurrences(of: "2026-10-18T11:59:00.000Z", with: "2026-10-16T12:00:00Z") ] {
+                        body.replacingOccurrences(of: "2026-10-17T10:00:00Z", with: "invalid"),
+                        body.replacingOccurrences(of: "2026-10-17T10:00:00Z", with: "2026-10-01T10:00:00Z"),
+                        body.replacingOccurrences(of: "5.0 days", with: "0 days"),
+                        body.replacingOccurrences(of: "5.0 days", with: "91 days"),
+                        body.replacingOccurrences(of: "5.0 days", with: "NaN days"),
+                        body + body] {
             suite.expect(AgentCodexResetForecast.decode(Data(changed.utf8), fetchedAt: now) == nil,
-                         "unknown, future, malformed or old source data supplies no scenario")
+                         "missing, future, malformed, expired or ambiguous source fields supply no scenario")
         }
-        let onlyCredits = body.replacingOccurrences(of: "regular", with: "banked")
+        let onlyCredits = body.replacingOccurrences(of: "id='reset-since'", with: "id='banked-since'")
         suite.expect(AgentCodexResetForecast.decode(Data(onlyCredits.utf8), fetchedAt: now) == nil,
                      "banked credits alone are not evidence of an automatic global reset")
+        suite.expect(AgentCodexResetForecast.decode(Data(repeating: 65, count: AgentCodexResetForecast.maximumSize + 1),
+                                                   fetchedAt: now) == nil,
+                     "oversized public pages never enter the forecast parser")
+        suite.expect(AgentCodexResetForecast.decode(Data(body.utf8), fetchedAt: .distantPast) == nil,
+                     "an invalid fetch clock cannot anchor an estimate")
         source(suite, body: Data(body.utf8), now: now)
+    }
+
+    private static func ritmoReference(_ suite: TestSuite) {
+        let page = #"<html><div id="reset-since" data-reset-at="2026-10-17T20:41:01.000Z"></div><p id="live-home-rhythm-trend">All-time median gap: 4.0 days · last 30 days: 4.0 days</p></html>"#
+        let parse = ISO8601DateFormatter()
+        let now = parse.date(from: "2026-10-19T20:43:00Z")!
+        let forecast = AgentCodexResetForecast.decode(Data(page.utf8), fetchedAt: now)
+        suite.expect(forecast?.estimatedReset == parse.date(from: "2026-10-21T20:41:01Z"),
+                     "Ritmo parity uses codex-reset.com last global reset plus its all-time four-day median")
+        if let forecast {
+            let formatter = DateFormatter()
+            formatter.timeZone = TimeZone(identifier: "America/Fortaleza")!
+            formatter.dateFormat = "dd/MM HH:mm"
+            suite.expect(formatter.string(from: forecast.estimatedReset) == "21/10 17:41",
+                         "the reference scenario matches the user's Fortaleza date without a timezone shift")
+        }
     }
 
     private static func comparison(_ suite: TestSuite, actual: AgentWeeklyPlan, speculative: AgentWeeklyPlan) {
@@ -126,7 +153,7 @@ enum AgentCodexResetForecastTests {
         }
         callbacks[1](body)
         RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        suite.expect(source.forecast?.resetCount == 3, "a successful public response reaches the actual forecast state")
+        suite.expect(source.forecast?.medianDays == 5, "a successful public response reaches the actual forecast state")
         source.synchronize(enabled: true)
         suite.expect(callbacks.count == 2, "UI ticks do not repeatedly fetch a fresh public history")
         clock = now.addingTimeInterval(6 * 3600)
@@ -138,7 +165,7 @@ enum AgentCodexResetForecastTests {
         callbacks[2](nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         source.synchronize(enabled: true)
-        suite.expect(source.forecast?.resetCount == 3 && callbacks.count == 3,
+        suite.expect(source.forecast?.medianDays == 5 && callbacks.count == 3,
                      "a download failure retains the expiring estimate and backs off instead of retrying every tick")
     }
 }

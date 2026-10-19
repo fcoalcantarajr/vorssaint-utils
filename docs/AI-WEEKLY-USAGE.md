@@ -42,7 +42,7 @@ occupancy, token totals, an API bill, or a forecast of future work.
   above the graph still includes a local date, time and zone.
 - **Speculative reset (Codex only):** an orange dotted alternative from the
   latest real observation to an estimated early global reset. It is explicitly
-  labeled as a historical mean without a guarantee, separate from the green
+  labeled as a historical median without a guarantee, separate from the green
   account budget. The source link, check time and estimate expiration are shown.
   Its daily-target column is a separate alternative; the actual-account budget
   and deadline are preserved.
@@ -92,29 +92,31 @@ and `AgentCodexServer`:
   workspaces of the same user; no cross-workspace comparison is offered.
 
 These CLI interfaces do not announce a future global reset. The separate
-speculative line uses the public [Codex Resets API](https://codex-resets.com/api/docs),
-not account credentials. A bounded GET to
-`https://codex-resets.com/api/v1/resets?limit=100` supplies up to 100 recent
-announcements classified by the tracker as executed. Only distinct timestamps
-classified `regular` participate; records classified `banked` are excluded.
-At least three regular records are required. The arithmetic mean
-of their consecutive intervals is added to the latest regular reset. This is
-Vorssaint's historical estimate, not a forecast promised by that site or OpenAI,
-and not a calibrated probability. Irregular resets and incorrect third-party
-classifications may make it inaccurate. The classification is not independent
-proof that each record actually reset every account. During validation on
-2026-10-18, a record classified `regular` described a banked credit.
+speculative line uses the public [Codex Reset](https://codex-reset.com/) page,
+the same reference as [Ritmo](https://ritmo-de-uso.vercel.app), not account
+credentials. A bounded GET reads the page's `reset-since` global reset timestamp
+and the **All-time median gap** in `live-home-rhythm-trend`. The scenario is that
+timestamp plus the published median in days, with each day equal to 86,400 seconds.
+It does not use a recent median, an arithmetic mean, a banked credit timestamp,
+or the unrelated `codex-resets.com` feed. During validation on 2026-10-19, the
+reference was 2026-10-17 20:41:01 UTC plus 4.0 days: **2026-10-21 17:41 in
+America/Fortaleza**. The UI formats the resulting instant in the Mac's local zone.
+This reproduces the reference's historical scenario; it is neither a promised
+reset nor a calibrated probability. The tracker is independent of OpenAI, and
+its classifications are not independent proof that every account was reset.
 
 The estimate is displayed only if it is still in the future, earlier than the
 real account deadline, and anchored to a fresh identified account observation.
-It expires at the earlier of the estimate and 24 hours after the feed's
-`generated_at`. Passing that date hides the line; it never rolls the estimate
-forward or adds an observed refill. Missing, malformed, future, unknown-version,
-oversized or old feed data cannot create a line. An unavailable or inapplicable
+It expires at the earlier of the estimate and 24 hours after the page was
+fetched. Passing that date hides the line; it never rolls the estimate
+forward or adds an observed refill. Missing, ambiguous, malformed or future
+source fields, oversized pages and past scenarios cannot create a line. If the
+page format changes, the reader does not fall back to a different tracker or
+statistic. An unavailable or inapplicable
 estimate is labeled rather than substituted for the account reset.
 
 While the Codex weekly card is visible, opening the AI page automatically checks
-the public feed, even before an account reading is available. Completed attempts
+the public page, even before an account reading is available. Completed attempts
 wait six hours before another check in that app session, including after errors.
 Hiding the card or pausing/disabling AI Agents cancels an in-flight request; a
 canceled attempt can retry when the card returns. Restarting the app resets this
@@ -122,7 +124,10 @@ in-memory cadence. The existing bounded downloader uses an
 ephemeral session with no cookies or cache and no redirect to another host.
 No quota, account identity, token, local path or prompt is sent; as with any
 public HTTPS request, the source sees the connection's IP address and the app's
-User-Agent. The public estimate stays in memory and is never stored as private
+User-Agent, which identifies the app, its version and its public project URL.
+The source is linked beside the estimate. Only the bounded HTML is read; the
+page's JavaScript, analytics, images and other resources are never loaded.
+The public estimate stays in memory and is never stored as private
 quota history or included in settings export. This adds a public-data network
 request, not a remote collector of personal usage. Banked reset credits remain
 a different feature and are never consumed by this card.

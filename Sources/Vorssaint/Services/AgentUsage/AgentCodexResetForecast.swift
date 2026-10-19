@@ -6,44 +6,38 @@ import Foundation
 /// A public historical estimate, kept outside all private quota history.
 struct AgentCodexResetForecast {
     let estimatedReset: Date
-    let resetCount: Int
-    let generatedAt: Date
+    let lastReset: Date
+    let medianDays: Double
     let fetchedAt: Date
     let expiresAt: Date
-    static let source = URL(string: "https://codex-resets.com")!
-    static let endpoint = URL(string: "https://codex-resets.com/api/v1/resets?limit=100")!
+    static let source = URL(string: "https://codex-reset.com/")!
+    static let endpoint = source
     static let maximumSize = 256 << 10
 
-    private struct Feed: Decodable {
-        struct Reset: Decodable { let resetType: String; let announcedAt: String }
-        struct Meta: Decodable { let apiVersion: String; let generatedAt: String }
-        let data: [Reset]
-        let meta: Meta
+    /// Match Ritmo's reference: the page's observed global reset plus its
+    /// published all-time median. A different tracker or statistic changes
+    /// the scenario, even when both are described as historical estimates.
+    static func decode(_ data: Data, fetchedAt: Date) -> Self? {
+        guard data.count <= maximumSize, fetchedAt.timeIntervalSince1970.isFinite,
+              let html = String(data: data, encoding: .utf8),
+              let rawReset = capture(#"<[a-z][a-z0-9]*\b(?=[^>]*\sid\s*=\s*["']reset-since["'])[^>]*\sdata-reset-at\s*=\s*["']([^"']+)["'][^>]*>"#, in: html),
+              let last = date(rawReset), last <= fetchedAt, last.timeIntervalSince1970 > 0,
+              let rawMedian = capture(#"<p\b(?=[^>]*\sid\s*=\s*["']live-home-rhythm-trend["'])[^>]*>\s*All-time median gap:\s*([0-9]+(?:\.[0-9]+)?)\s*days\b[^<]*</p\s*>"#, in: html),
+              let days = Double(rawMedian), days.isFinite, days > 0, days <= 90 else { return nil }
+        let estimate = last.addingTimeInterval(days * 86_400)
+        guard estimate > fetchedAt else { return nil }
+        return Self(estimatedReset: estimate, lastReset: last, medianDays: days,
+                    fetchedAt: fetchedAt, expiresAt: min(estimate, fetchedAt.addingTimeInterval(86_400)))
     }
 
-    static func decode(_ data: Data, fetchedAt: Date) -> Self? {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        guard data.count <= maximumSize, let feed = try? decoder.decode(Feed.self, from: data),
-              feed.meta.apiVersion == "v1", feed.data.count <= 100,
-              let generated = date(feed.meta.generatedAt), generated <= fetchedAt,
-              fetchedAt.timeIntervalSince(generated) < 86_400 else { return nil }
-        var dates = Set<Date>()
-        for reset in feed.data {
-            guard ["regular", "banked"].contains(reset.resetType),
-                  let announced = date(reset.announcedAt), announced <= generated,
-                  announced.timeIntervalSince1970 > 0 else { return nil }
-            if reset.resetType == "regular" { dates.insert(announced) }
-        }
-        let ordered = dates.sorted()
-        guard ordered.count >= 3, let first = ordered.first, let last = ordered.last else { return nil }
-        // The sum of consecutive intervals is last − first. Credits and
-        // duplicate announcements cannot distort this arithmetic mean.
-        let interval = last.timeIntervalSince(first) / Double(ordered.count - 1)
-        let estimate = last.addingTimeInterval(interval)
-        guard interval > 0, estimate > fetchedAt else { return nil }
-        return Self(estimatedReset: estimate, resetCount: ordered.count, generatedAt: generated,
-                    fetchedAt: fetchedAt, expiresAt: min(estimate, generated.addingTimeInterval(86_400)))
+    /// A missing or ambiguous page field hides the scenario rather than
+    /// silently substituting a recent median, banked credit or another feed.
+    private static func capture(_ pattern: String, in text: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        guard matches.count == 1, let match = matches.first,
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
     }
 
     func plan(provider: AgentProvider, sample: AgentWeeklyUsage.Sample, now: Date) -> AgentWeeklyPlan? {

@@ -89,7 +89,7 @@ struct NotchAgentWeeklyCard: View {
                         Text(strings.estimateUnavailable).font(.system(size: 8)).foregroundStyle(.secondary)
                     }
                     HStack(spacing: 4) {
-                        Link("codex-resets.com", destination: AgentCodexResetForecast.source)
+                        Link("codex-reset.com", destination: AgentCodexResetForecast.source)
                         if let forecast = forecasts.forecast {
                             Text("· " + strings.estimateChecked + " " + date(forecast.fetchedAt))
                         }
