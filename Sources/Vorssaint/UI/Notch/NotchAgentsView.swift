@@ -30,12 +30,11 @@ struct NotchAgentsView: View {
             ? accounts.states.filter { $0.id != CodexProfileLimitsService.weeklyProfileID } : []
     }
 
-    /// Only agents that left something on this Mac, or whose accounts were
-    /// added, get cards.
     private var providers: [AgentProvider] {
-        [claude ? AgentProvider.claude : nil, codex ? .codex : nil, opencode ? .opencode : nil, copilot ? .copilot : nil].compactMap { $0 }
-            .filter { usage.snapshot.seen.contains($0) || ($0 == .codex && !accounts.states.isEmpty)
-                || ($0 == .claude && !NotchAgentSupport.hiddenCards().contains(.weekly)) }
+        let enabled = [claude ? AgentProvider.claude : nil, codex ? .codex : nil,
+                       opencode ? .opencode : nil, copilot ? .copilot : nil].compactMap { $0 }
+        return NotchAgentSupport.visibleProviders(enabled, seen: usage.snapshot.seen,
+            hasCodexAccounts: !codexAccounts.isEmpty, showsWeekly: NotchAgentSupport.cards().contains(.weekly))
     }
 
     private var rows: [[NotchAgentTile]] {

@@ -38,6 +38,7 @@ enum NotchAgentTests {
         AgentClaudeServerTests.run(suite)
         CodexAccountLimitsTests.run(suite)
         preferences(suite)
+        weeklyGeometry(suite)
         limitUse(suite)
         agentDefaults(suite)
         formatting(suite)
@@ -47,6 +48,43 @@ enum NotchAgentTests {
         AgentCodexResetForecastTests.run(suite)
         suite.expect(NotchAgentCard(rawValue: "weekly") != nil,
                      "weekly usage is a selectable AI agents card")
+    }
+
+    class GeometryFixture {
+        var snapshot = AgentUsageSnapshot(loaded: true)
+        var states: [CodexProfileLimitsState] = []
+        let defaults: UserDefaults
+        init(defaults: UserDefaults) { self.defaults = defaults }
+    }
+
+    private static func weeklyGeometry(_ suite: TestSuite) {
+        let domain = "com.vorssaint.tests.weekly-geometry." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let host = GeometryHost(defaults: defaults)
+        defaults.set(NotchAgentCard.allCases.filter { $0 != .weekly }.map(\.rawValue).joined(separator: ","),
+                     forKey: DefaultsKey.notchAgentsHiddenCards)
+        for provider in AgentProvider.allCases { defaults.set(false, forKey: NotchAgentSupport.key(for: provider)) }
+        defaults.set(true, forKey: DefaultsKey.notchAgentsClaude)
+        suite.expect(host.agentsContentHeight(width: 424) == 500,
+                     "a Claude Weekly card without local logs receives its full page height")
+        defaults.set(false, forKey: DefaultsKey.notchAgentsClaude)
+        defaults.set(true, forKey: DefaultsKey.notchAgentsCodex)
+        host.states = [CodexProfileLimitsState(profile: CodexAccountProfile(
+            id: CodexProfileLimitsService.weeklyProfileID, name: "Codex", directory: CodexProfileLimitsService.defaultDirectory))]
+        suite.expect(host.agentsContentHeight(width: 424) == 640,
+                     "a Codex Weekly-only transient home without logs receives its full page height")
+        defaults.set(true, forKey: DefaultsKey.notchAgentsClaude)
+        suite.expect(host.agentsContentHeight(width: 424) == 1140 + NotchAgentSupport.spacing,
+                     "both Weekly providers without logs receive two full-height rows")
+        defaults.set(NotchAgentCard.allCases.map(\.rawValue).joined(separator: ","), forKey: DefaultsKey.notchAgentsHiddenCards)
+        suite.expect(host.agentsContentHeight(width: 424) == 0,
+                     "hiding every card cannot leave a virtual Codex profile contributing page height")
+        defaults.set(NotchAgentCard.allCases.filter { $0 != .limits }.map(\.rawValue).joined(separator: ","),
+                     forKey: DefaultsKey.notchAgentsHiddenCards)
+        host.snapshot.loaded = false
+        suite.expect(host.agentsContentHeight(width: 424) == nil,
+                     "a transient Weekly profile never bypasses the log-loading placeholder as a saved account")
     }
 
     private static func line(_ json: String) -> Data { Data(json.utf8) }

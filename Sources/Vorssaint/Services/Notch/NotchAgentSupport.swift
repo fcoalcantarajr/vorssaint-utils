@@ -90,6 +90,14 @@ enum NotchAgentSupport {
         }
     }
 
+    /// Geometry and rendering use the same providers, including quota-only
+    /// Weekly cards before any local log has been written.
+    static func visibleProviders(_ enabled: [AgentProvider], seen: Set<AgentProvider>,
+                                 hasCodexAccounts: Bool, showsWeekly: Bool) -> [AgentProvider] {
+        enabled.filter { seen.contains($0) || ($0 == .codex && hasCodexAccounts)
+            || (showsWeekly && ($0 == .claude || $0 == .codex)) }
+    }
+
     static func key(for provider: AgentProvider) -> String {
         switch provider {
         case .claude: return DefaultsKey.notchAgentsClaude

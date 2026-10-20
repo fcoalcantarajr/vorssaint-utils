@@ -2099,6 +2099,17 @@ def main():
                     for prefix in ["    private func start(", "    private func read(", "    private func filesChanged("])
           + "}\n}\n")
 
+    write("AgentPageGeometry.swift", "import Foundation\n"
+          + "extension NotchAgentTests {\nfinal class GeometryHost: GeometryFixture {\n"
+          + declaration("Sources/Vorssaint/Services/Notch/NotchService.swift", "    private func agentsContentHeight(")
+            .replace("private func", "func", 1)
+            .replace("AgentUsageService.shared.snapshot", "snapshot")
+            .replace("CodexProfileLimitsService.shared.states", "states")
+            .replace("NotchAgentSupport.providers()", "NotchAgentSupport.providers(in: defaults)")
+            .replace("NotchAgentSupport.showsCodexAccounts()", "NotchAgentSupport.showsCodexAccounts(in: defaults)")
+            .replace("NotchAgentSupport.cards()", "NotchAgentSupport.cards(in: defaults)")
+          + "}\n}\n")
+
     write("WeeklyCodexForward.swift", "import Foundation\n"
           + "extension CodexAccountLimitsTests {\nfinal class WeeklyForwardHost: WeeklyForwardFixture {\n"
           + declaration("Sources/Vorssaint/UI/Notch/NotchAgentsView.swift",
