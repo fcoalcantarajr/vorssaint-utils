@@ -74,6 +74,7 @@ enum AgentWeeklyUsageTests {
                      "an unknown reset means no invented ideal or budget")
         persistence(suite, history: history)
         retention(suite)
+        revisedResetBoundaries(suite)
         checkpoints(suite)
         for language in AppLanguage.allCases {
             let strings = AgentWeeklyStrings.localized(language)
@@ -81,6 +82,41 @@ enum AgentWeeklyUsageTests {
             suite.expect(values.count == 26 && values.allSatisfy { !$0.isEmpty }
                          && strings.title == FeatureStrings.notchAgents(language).card(.weekly),
                          "weekly usage is localized consistently for \(language.rawValue)")
+        }
+    }
+
+    private static func revisedResetBoundaries(_ suite: TestSuite) {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for (provider, originalHours, revisedHours, expectedCycles) in [
+            (AgentProvider.codex, 2, 4, 1), (.claude, 4, 2, 2)
+        ] {
+            let original = start.addingTimeInterval(Double(originalHours) * 3600)
+            let revised = start.addingTimeInterval(Double(revisedHours) * 3600)
+            func reading(_ percent: Double, seconds: TimeInterval, reset: Date?) -> AgentLimits {
+                AgentLimits(provider: provider, windows: [
+                    AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                                     usedPercent: percent, resetsAt: reset)
+                ], observedAt: start.addingTimeInterval(seconds), source: .account, accountScope: "revised-account")
+            }
+            var history = AgentWeeklyUsage()
+            history.record(reading(20, seconds: 0, reset: original), now: start)
+            history.record(reading(30, seconds: 60, reset: revised), now: start.addingTimeInterval(60))
+            history.record(reading(35, seconds: 120, reset: nil), now: start.addingTimeInterval(120))
+            if let bytes = try? JSONEncoder().encode(history),
+               let loaded = try? JSONDecoder().decode(AgentWeeklyUsage.self, from: bytes) {
+                history = loaded
+            } else { suite.expect(false, "revised-reset history round-trips its real samples") }
+            history.record(reading(40, seconds: 3 * 3600, reset: nil), now: start.addingTimeInterval(3 * 3600))
+            suite.expect(history.cycles.count == expectedCycles && history.cycles.first?.originalReset == original,
+                         "reset-less samples use the last revised boundary while preserving the original ideal: \(provider)")
+            suite.expect(history.cycles.flatMap(\.samples).map(\.usedPercent) == [20, 30, 35, 40]
+                         && history.current(provider)?.latest?.resetsAt == nil,
+                         "a retained cycle boundary cannot invent a deadline or observations on reset-less samples")
+            let next = start.addingTimeInterval(8 * 3600)
+            history.record(reading(5, seconds: 4 * 3600 + 60, reset: next),
+                           now: start.addingTimeInterval(4 * 3600 + 60))
+            suite.expect(history.cycles.count == 2 && history.current(provider)?.originalReset == next,
+                         "the next reported deadline belongs to the correct cycle after the revised boundary")
         }
     }
 

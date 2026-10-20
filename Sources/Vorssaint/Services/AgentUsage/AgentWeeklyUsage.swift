@@ -81,7 +81,11 @@ struct AgentWeeklyUsage: Codable, Equatable {
         guard sample.valid else { return false }
         let previous = cycles.lastIndex { $0.provider == reading.provider.rawValue && $0.accountScope == scope }
         if let latest = previous.flatMap({ cycles[$0].latest }), latest.observedAt >= sample.observedAt { return false }
-        let previousReset = previous.flatMap { cycles[$0].latest?.resetsAt ?? cycles[$0].originalReset }
+        // A reset-less observation must not undo a provider's later revision.
+        // This boundary is independent of the fixed original-ideal reference.
+        let previousReset = previous.flatMap {
+            cycles[$0].samples.last(where: { $0.resetsAt != nil })?.resetsAt ?? cycles[$0].originalReset
+        }
         let beginsCycle = previous == nil || previousReset.map { $0 <= sample.observedAt } == true
         if beginsCycle {
             cycles.append(Cycle(provider: reading.provider.rawValue, accountScope: scope, samples: []))
