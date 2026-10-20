@@ -155,7 +155,7 @@ struct NotchAgentWeeklyCard: View {
             + " · " + goal.date.formatted(.dateTime.hour().minute().locale(locale))
         let marker = goal.isSpeculativeReset ? strings.speculative : (goal.isActualReset ? strings.targetReset : strings.targetDay)
         var descriptions = [marker, date(goal.date),
-                            strings.targetActual + " " + percent(goal.actualPercent),
+                            (compares ? strings.targetActual : strings.targetLimit) + " " + percent(goal.actualPercent),
                             strings.targetAllowance + " " + allowance]
         if compares {
             descriptions.append(strings.speculative + " " + (goal.speculativePercent.map {
