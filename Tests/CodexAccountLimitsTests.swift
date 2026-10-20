@@ -627,6 +627,20 @@ enum CodexAccountLimitsTests {
         probe.hold(false)
         service.pageDidAppear(includeWeekly: true)
         wait { service.states.allSatisfy { !$0.checking } }
+        let beforeHiddenManual = probe.calls.count
+        service.refresh(force: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(service.states.map(\.id) == [CodexProfileLimitsService.weeklyProfileID]
+                     && probe.calls.count == beforeHiddenManual,
+                     "Settings cannot refresh the transient Weekly home while the AI page is still visible and Limits is hidden")
+        service.refresh(id: CodexProfileLimitsService.weeklyProfileID, force: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(probe.calls.count == beforeHiddenManual,
+                     "a manual request naming the virtual Weekly profile cannot bypass the saved-home boundary")
+        service.refresh(id: CodexProfileLimitsService.weeklyProfileID, now: Date().addingTimeInterval(301))
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(Array(probe.calls.dropFirst(beforeHiddenManual)) == [CodexProfileLimitsService.weeklyProfileID],
+                     "automatic due checks still refresh the default home while Weekly is visible")
         service.pageDidDisappear()
         let beforeManual = probe.calls.count
         service.refresh(force: true)
@@ -636,6 +650,11 @@ enum CodexAccountLimitsTests {
         defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
         service.pageDidAppear(includeWeekly: true)
         wait { service.states.allSatisfy { !$0.checking } }
+        let beforeConcurrentManual = probe.calls.count
+        service.refresh(force: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(Array(probe.calls.dropFirst(beforeConcurrentManual)) == profiles.map(\.id),
+                     "Settings checks only the displayed saved homes while Weekly and the AI page are concurrently visible")
         service.pageDidDisappear()
         let beforeSaved = probe.calls.count
         service.refresh(force: true)

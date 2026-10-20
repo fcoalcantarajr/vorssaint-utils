@@ -148,12 +148,14 @@ final class CodexProfileLimitsService: ObservableObject {
         synchronize()
     }
 
-    /// Queues the homes that are due, or, when the person asks, `id` or every
-    /// home. One already waiting or under way is not asked twice.
+    /// Queues due homes, including Weekly. Manual requests reach only saved
+    /// homes, even while the AI page has its transient Weekly profile open.
+    /// One already waiting or under way is not asked twice.
     func refresh(id: String? = nil, force: Bool = false, now: Date = Date()) {
         guard isEnabled, visible || force else { return }
         for index in states.indices where id == nil || states[index].id == id {
             let state = states[index]
+            guard !force || state.id != Self.weeklyProfileID else { continue }
             if state.checking {
                 if force, let place = waiting.firstIndex(where: { $0.id == state.id }) { waiting[place].asked = true }
                 continue
