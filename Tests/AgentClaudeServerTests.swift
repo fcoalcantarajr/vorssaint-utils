@@ -13,6 +13,9 @@ enum AgentClaudeServerTests {
     }
 
     class Fixture {
+        let queue = DispatchQueue(label: "com.vorssaint.tests.claude-account")
+        var session = 1
+        var readerSession = 1
         var claudeWeeklyScope: String?
         var weeklyHistory = AgentWeeklyUsage()
         var claudeProfileModified: Date?
@@ -34,6 +37,7 @@ enum AgentClaudeServerTests {
         var claudeAppModified: Date?
         var claudeAppSamples: [AgentClaudeAppUsage.Sample] = []
         var claudeAccountLimits: AgentLimits?
+        var claudeWeeklySignedOut = false
         let store = AgentUsageStore()
         var previousLimits: [AgentProvider: AgentLimits] = [:]
         var warned: [String: (provider: AgentProvider, window: AgentLimitWindow)] = [:]
@@ -53,6 +57,7 @@ enum AgentClaudeServerTests {
 
     static func run(_ suite: TestSuite) {
         accountSelection(suite)
+        signedOutSelection(suite)
         alerts(suite)
         checks(suite)
         discovery(suite)
@@ -253,6 +258,72 @@ enum AgentClaudeServerTests {
             suite.expect(host.weeklyPublications.count == 2 && host.claudeWeeklyScope == nil,
                          "losing the Claude account file also publishes removal of its selected history")
         } catch { suite.expect(false, "Claude account-selection fixture: \(error)") }
+    }
+
+    private static func signedOutSelection(_ suite: TestSuite) {
+        let host = Host(), now = Date()
+        let scope = AgentWeeklyAccount.scope(identifier: "signed-out", organization: "account")!
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        host.home = folder
+        let profile = folder.appendingPathComponent(".claude.json")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: ["oauthAccount": [
+            "accountUuid": "signed-out", "organizationUuid": "account", "organizationType": "claude_pro"
+        ]]).write(to: profile)
+        host.readClaudePlan()
+        suite.expect(host.claudeWeeklyScope == scope, "the sign-out fixture starts with cached Claude identity metadata")
+        let reading = AgentLimits(provider: .claude, windows: [
+            AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                             usedPercent: 35, resetsAt: now.addingTimeInterval(604_800))
+        ], observedAt: now, source: .account, accountScope: scope)
+        host.weeklyHistory.record(reading, now: now)
+        host.claudeAccountLimits = reading
+        host.store.setLimits(reading)
+        host.noteClaudeCheck(.unreachable)
+        host.queue.sync {}
+        suite.expect(host.weeklyHistory.current(.claude)?.latest?.usedPercent == 35,
+                     "an inconclusive Claude check preserves its selected weekly observations")
+        host.noteClaudeCheck(.needsSignIn)
+        host.queue.sync {}
+        suite.expect(host.weeklyHistory.current(.claude) == nil && host.weeklyHistory.cycles.count == 1
+                     && host.weeklyPublications.last?.current(.claude) == nil && !host.weeklyPublications.isEmpty,
+                     "a definitive Claude sign-out publishes an unselected history without deleting cycles")
+        host.readClaudeApp(now: now)
+        for limits in host.store.limits.values { host.weeklyHistory.record(limits, now: now) }
+        suite.expect(host.claudeAccountLimits == nil && host.weeklyHistory.current(.claude) == nil,
+                     "a later publish cannot resurrect the signed-out account from its cached limits")
+        host.readClaudePlan()
+        suite.expect(host.weeklyHistory.current(.claude) == nil,
+                     "an unchanged cached Claude profile cannot restore a revoked account selection")
+        try? FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(2)], ofItemAtPath: profile.path)
+        host.readClaudePlan()
+        suite.expect(host.weeklyHistory.current(.claude) == nil,
+                     "touching cached metadata cannot restore a signed-out Claude account")
+        host.noteClaudeCheck(nil)
+        let later = now
+        let renewed = AgentLimits(provider: .claude, windows: reading.windows, observedAt: later,
+                                  source: .account, accountScope: scope)
+        host.queue.sync {
+            host.acceptClaudeAccount(AgentClaudeServer.Summary(limits: renewed, organization: "account", accountScope: scope),
+                                     session: host.session - 1)
+        }
+        suite.expect(host.weeklyHistory.current(.claude) == nil && host.claudeAccountLimits == nil,
+                     "a response from an old reader session cannot restore signed-out Claude observations")
+        host.queue.sync {
+            host.acceptClaudeAccount(AgentClaudeServer.Summary(limits: renewed, organization: "account", accountScope: "different"),
+                                     session: host.session)
+        }
+        suite.expect(host.weeklyHistory.current(.claude) == nil && host.claudeAccountLimits == nil,
+                     "a response for another Claude identity cannot restore signed-out observations")
+        host.queue.sync {
+            host.acceptClaudeAccount(AgentClaudeServer.Summary(limits: renewed, organization: "account", accountScope: scope),
+                                     session: host.session)
+        }
+        for limits in host.store.limits.values { host.weeklyHistory.record(limits, now: later) }
+        suite.expect(host.weeklyHistory.current(.claude)?.latest?.usedPercent == 35
+                     && host.weeklyHistory.current(.claude)?.samples.count == 1,
+                     "a successful cached reading reselects Claude history without inventing a duplicate observation")
     }
 
     private static func alerts(_ suite: TestSuite) {

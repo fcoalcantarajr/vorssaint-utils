@@ -108,6 +108,7 @@ final class AgentUsageService: ObservableObject {
     private var claudeAppModified: Date?
     private var claudeAppSamples: [AgentClaudeAppUsage.Sample] = []
     private var claudeAccountLimits: AgentLimits?
+    private var claudeWeeklySignedOut = false
     private var shippedPrices: AgentPriceList?
     private var previousLimits: [AgentProvider: AgentLimits] = [:]
     /// Warned windows, each waiting for its renewal.
@@ -762,7 +763,7 @@ final class AgentUsageService: ObservableObject {
         let scope = AgentWeeklyAccount.scope(
             identifier: account["accountUuid"] as? String ?? account["emailAddress"] as? String,
             organization: organization)
-        if weeklyHistory.selectAccount(scope, provider: .claude) { schedulePublish() }
+        if weeklyHistory.selectAccount(claudeWeeklySignedOut ? nil : scope, provider: .claude) { schedulePublish() }
         if organization != claudeOrganization || scope != claudeWeeklyScope {
             claudeAccountLimits = nil
             store.clearLimits(.claude)
@@ -840,18 +841,25 @@ final class AgentUsageService: ObservableObject {
                 case .success(let summary):
                     self.noteClaudeCheck(nil)
                     self.queue.async {
-                        guard self.readerSession == session, self.enabled.contains(.claude) else { return }
-                        self.readClaudePlan()
-                        guard self.claudeOrganization == summary.organization,
-                              self.claudeWeeklyScope == summary.accountScope else { return }
-                        self.claudeAccountLimits = summary.limits
-                        self.readClaudeApp(now: Date())
-                        self.checkLimits()
-                        self.schedulePublish()
+                        self.acceptClaudeAccount(summary, session: session)
                     }
                 }
             }
         }
+    }
+
+    /// Reader queue. Only a successful response for the current identity
+    /// can make previously signed-out observations current again.
+    private func acceptClaudeAccount(_ summary: AgentClaudeServer.Summary, session: Int) {
+        guard readerSession == session, enabled.contains(.claude) else { return }
+        readClaudePlan()
+        guard claudeOrganization == summary.organization, claudeWeeklyScope == summary.accountScope else { return }
+        claudeWeeklySignedOut = false
+        weeklyHistory.selectAccount(summary.accountScope, provider: .claude)
+        claudeAccountLimits = summary.limits
+        readClaudeApp(now: Date())
+        checkLimits()
+        schedulePublish()
     }
 
     private func cancelClaudeLimits() {
@@ -877,6 +885,19 @@ final class AgentUsageService: ObservableObject {
     private func noteClaudeCheck(_ failure: AgentClaudeServer.Failure?) {
         claudeAccountFailure = failure
         claudeAccountUnreachable = failure == .unreachable ? claudeAccountUnreachable + 1 : 0
+        guard failure == .needsSignIn else { return }
+        let session = self.session
+        queue.async { [self] in
+            guard readerSession == session, enabled.contains(.claude) else { return }
+            // Cached profile metadata can outlive a revoked sign-in. Drop
+            // its current reading so publication cannot reselect that account.
+            claudeAccountLimits = nil
+            claudeWeeklySignedOut = true
+            weeklyHistory.selectAccount(nil, provider: .claude)
+            readClaudeApp(now: Date())
+            checkLimits()
+            schedulePublish()
+        }
     }
 
     /// Back online, the checks start over from the shortest wait: those the
