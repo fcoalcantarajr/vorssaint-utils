@@ -86,7 +86,8 @@ struct AgentWeeklyUsage: Codable, Equatable {
         let previousReset = previous.flatMap {
             cycles[$0].samples.last(where: { $0.resetsAt != nil })?.resetsAt ?? cycles[$0].originalReset
         }
-        let beginsCycle = previous == nil || previousReset.map { $0 <= sample.observedAt } == true
+        let usageDropped = previous.flatMap { cycles[$0].latest }.map { sample.usedPercent < $0.usedPercent } ?? false
+        let beginsCycle = previous == nil || previousReset.map { $0 <= sample.observedAt } == true || usageDropped
         if beginsCycle {
             cycles.append(Cycle(provider: reading.provider.rawValue, accountScope: scope, samples: []))
         }
@@ -101,6 +102,60 @@ struct AgentWeeklyUsage: Codable, Equatable {
         activeScopes[reading.provider.rawValue] = scope
         prune(now: now)
         return true
+    }
+
+    /// Older archives can contain a reset that arrived before the previously
+    /// reported deadline. Match incoming-sample handling by splitting such a
+    /// cycle at every observed drop in weekly consumption.
+    @discardableResult
+    mutating func splitCyclesAtUsageDrops() -> Bool {
+        var segmented: [Cycle] = []
+        segmented.reserveCapacity(cycles.count)
+        var changed = false
+
+        for cycle in cycles {
+            guard cycle.samples.count > 1 else {
+                segmented.append(cycle)
+                continue
+            }
+
+            let inferredDuration = cycle.originalReset.flatMap { reset in
+                cycle.inferredStart.map { reset.timeIntervalSince($0) }
+            }.flatMap { $0 > 0 ? $0 : nil }
+            let resetIndices = cycle.samples.indices.dropFirst().filter {
+                cycle.samples[$0].usedPercent < cycle.samples[$0 - 1].usedPercent
+            }
+            guard !resetIndices.isEmpty else {
+                segmented.append(cycle)
+                continue
+            }
+
+            changed = true
+            var segmentStart = 0
+            for segmentEnd in Array(resetIndices) + [cycle.samples.count] {
+                let samples = Array(cycle.samples[segmentStart..<segmentEnd])
+                let originalReset: Date?
+                let inferredStart: Date?
+                if segmentStart == 0 {
+                    originalReset = cycle.originalReset
+                    inferredStart = cycle.inferredStart
+                } else {
+                    originalReset = samples.compactMap(\.resetsAt).first
+                    if let reset = originalReset, let inferredDuration {
+                        inferredStart = reset.addingTimeInterval(-inferredDuration)
+                    } else {
+                        inferredStart = nil
+                    }
+                }
+                segmented.append(Cycle(provider: cycle.provider, accountScope: cycle.accountScope,
+                                       originalReset: originalReset, inferredStart: inferredStart,
+                                       samples: samples))
+                segmentStart = segmentEnd
+            }
+        }
+
+        if changed { cycles = segmented }
+        return changed
     }
 
     /// Also runs without new readings, at archive load and service maintenance.
@@ -222,7 +277,9 @@ enum AgentWeeklyUsageFile {
     static func load(from url: URL?, now: Date = Date()) -> (history: AgentWeeklyUsage, failed: Bool) {
         var loaded = read(from: url)
         guard !loaded.failed else { return loaded }
-        if loaded.history.prune(now: now) {
+        let splitResets = loaded.history.splitCyclesAtUsageDrops()
+        let pruned = loaded.history.prune(now: now)
+        if splitResets || pruned {
             loaded.failed = !save(loaded.history, to: url)
         }
         return loaded
