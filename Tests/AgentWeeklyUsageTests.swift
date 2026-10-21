@@ -82,6 +82,7 @@ enum AgentWeeklyUsageTests {
         persistence(suite, history: history)
         retention(suite)
         revisedResetBoundaries(suite)
+        cycleCapacity(suite)
         checkpoints(suite)
         for language in AppLanguage.allCases {
             let strings = AgentWeeklyStrings.localized(language)
@@ -90,6 +91,67 @@ enum AgentWeeklyUsageTests {
                          && strings.title == FeatureStrings.notchAgents(language).card(.weekly),
                          "weekly usage is localized consistently for \(language.rawValue)")
         }
+    }
+
+    private static func cycleCapacity(_ suite: TestSuite) {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func reading(_ used: Double, at date: Date, account: String, provider: AgentProvider = .codex) -> AgentLimits {
+            AgentLimits(provider: provider, windows: [
+                AgentLimitWindow(id: "weekly", kind: .weekly, minutes: 10_080, scope: nil,
+                                 usedPercent: used, resetsAt: start.addingTimeInterval(604_800))
+            ], observedAt: date, source: .account, accountScope: account)
+        }
+        for switches in [false, true] {
+            var history = AgentWeeklyUsage()
+            for index in 0..<402 {
+                let at = start.addingTimeInterval(Double(index * 2))
+                if switches {
+                    // Different accounts can report at the same source time.
+                    history.record(reading(40, at: start, account: "account-\(index)"), now: at)
+                } else {
+                    history.record(reading(80, at: at, account: "drops"), now: at)
+                    history.record(reading(20, at: at.addingTimeInterval(1), account: "drops"),
+                                   now: at.addingTimeInterval(1))
+                }
+            }
+            let current = history.current(.codex)
+            suite.expect(history.valid && history.cycles.count == 400 && current != nil,
+                         "frequent usage drops or account switches retain a valid bounded archive")
+            let url = root.appendingPathComponent(switches ? "accounts.json" : "drops.json")
+            let saved = AgentWeeklyUsageFile.save(history, to: url)
+            let reloaded = AgentWeeklyUsageFile.load(from: url, now: start.addingTimeInterval(1000))
+            suite.expect(saved && !reloaded.failed && reloaded.history.current(.codex) == current,
+                         "the newest cycle survives a real archive round trip after exceeding 400 cycles")
+            let next = start.addingTimeInterval(1001)
+            history.record(reading(10, at: next, account: switches ? "next-account" : "drops"), now: next)
+            suite.expect(history.valid && history.cycles.count == 400
+                         && history.current(.codex)?.latest?.observedAt == next
+                         && AgentWeeklyUsageFile.save(history, to: url),
+                         "collection and persistence continue after reaching the cycle cap")
+        }
+        var recent = AgentWeeklyUsage()
+        recent.record(reading(20, at: start, account: "active-claude", provider: .claude), now: start)
+        for index in 1...399 {
+            let at = start.addingTimeInterval(Double(index))
+            recent.record(reading(40, at: at, account: "codex-\(index)"), now: at)
+        }
+        var oldestSelected = recent
+        let updated = start.addingTimeInterval(1000)
+        recent.record(reading(30, at: updated, account: "active-claude", provider: .claude), now: updated)
+        recent.record(reading(40, at: updated.addingTimeInterval(1), account: "new-codex"),
+                      now: updated.addingTimeInterval(1))
+        suite.expect(recent.valid && recent.cycles.count == 400
+                     && recent.current(.claude)?.samples.count == 2
+                     && !recent.cycles.contains { $0.accountScope == "codex-1" },
+                     "cycle eviction uses the last observation rather than a still-active cycle's creation order")
+        oldestSelected.record(reading(40, at: updated, account: "fresh-codex"), now: updated)
+        let bytes = (try? JSONEncoder().encode(oldestSelected)) ?? Data()
+        suite.expect(oldestSelected.valid && oldestSelected.current(.claude) == nil
+                     && oldestSelected.current(.codex) != nil
+                     && !String(decoding: bytes, as: UTF8.self).contains("active-claude"),
+                     "evicting an account's final cycle removes its selected digest without affecting the surviving provider")
     }
 
     private static func revisedResetBoundaries(_ suite: TestSuite) {

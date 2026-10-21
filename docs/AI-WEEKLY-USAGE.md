@@ -154,7 +154,11 @@ and original cycle references. It contains no prompt, reply, account credentials
 or raw provider payload, and settings export does not include it.
 
 The history is retained across app restarts and disabling/re-enabling AI Agents,
-bounded to 91 days and 40,000 observations. Age cleanup is persisted when history
+bounded to 91 days, 40,000 observations and 400 cycles. At the cycle cap, the
+cycles with the oldest last observation are removed first; retained cycles are
+not merged or given synthetic resets. A non-identifying Claude sign-out marker
+can survive observation expiry until a successful identified account check.
+Age cleanup is persisted when history
 is loaded and during service maintenance, even without new readings. While the
 app is stopped or AI Agents disabled, the archive is untouched; expired samples
 are removed the next time AI Agents starts. Disabling the feature stops adding

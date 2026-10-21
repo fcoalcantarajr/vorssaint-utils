@@ -52,6 +52,7 @@ struct AgentWeeklyUsage: Codable, Equatable {
     /// Optional so archives from before this marker still decode unchanged.
     var claudeAccountInvalidated: Bool?
     static let maxSamples = 40_000
+    static let maxCycles = 400
 
     func current(_ provider: AgentProvider) -> Cycle? {
         guard provider != .claude || claudeAccountInvalidated != true else { return nil }
@@ -172,6 +173,16 @@ struct AgentWeeklyUsage: Codable, Equatable {
         let cutoff = now.addingTimeInterval(-91 * 86_400)
         for index in cycles.indices { cycles[index].samples.removeAll { $0.observedAt < cutoff } }
         cycles.removeAll { $0.samples.isEmpty }
+        if cycles.count > Self.maxCycles {
+            // A long-lived cycle can still be receiving current readings.
+            // Evict by its last observation, preserving retained cycle order.
+            let oldest = cycles.indices.sorted {
+                let left = cycles[$0].latest!.observedAt, right = cycles[$1].latest!.observedAt
+                return left == right ? $0 < $1 : left < right
+            }
+            let removed = Set(oldest.prefix(cycles.count - Self.maxCycles))
+            cycles = cycles.enumerated().filter { !removed.contains($0.offset) }.map(\.element)
+        }
         var excess = cycles.reduce(0) { $0 + $1.samples.count } - Self.maxSamples
         for index in cycles.indices where excess > 0 {
             let removed = min(excess, max(0, cycles[index].samples.count - 1))
@@ -187,7 +198,7 @@ struct AgentWeeklyUsage: Codable, Equatable {
     }
 
     var valid: Bool {
-        guard cycles.count <= 400, cycles.reduce(0, { $0 + $1.samples.count }) <= Self.maxSamples else { return false }
+        guard cycles.count <= Self.maxCycles, cycles.reduce(0, { $0 + $1.samples.count }) <= Self.maxSamples else { return false }
         return cycles.allSatisfy { cycle in
             guard ["claude", "codex"].contains(cycle.provider), !cycle.accountScope.isEmpty, !cycle.samples.isEmpty,
                   cycle.samples.allSatisfy(\.valid) else { return false }
