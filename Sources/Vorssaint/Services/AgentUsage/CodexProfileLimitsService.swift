@@ -68,6 +68,9 @@ final class CodexProfileLimitsService: ObservableObject {
     private var waiting: [(id: String, asked: Bool)] = []
     private var visible = false
     private var includesWeekly = false
+    /// Retain the completed check in memory while its virtual home is hidden.
+    /// Its windows also determine the shorter cadence after a renewal.
+    private var weeklyCheck: (directory: String, state: CodexProfileLimitsState)?
     /// A Terminal window's PATH, asked of the login shell only when the
     /// person checks again for a Codex that was not found, as on the Resets
     /// card: that runs their shell's startup files.
@@ -107,7 +110,15 @@ final class CodexProfileLimitsService: ObservableObject {
             states = wanted.map { profile in
                 // A renamed home keeps its reading and its check.
                 guard var state = previous.first(where: { $0.id == profile.id && $0.profile.directory == profile.directory })
-                else { return CodexProfileLimitsState(profile: profile) }
+                else {
+                    var state = CodexProfileLimitsState(profile: profile)
+                    if profile.id == Self.weeklyProfileID, let check = weeklyCheck,
+                       check.directory == URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path {
+                        state = check.state
+                        state.profile = profile
+                    }
+                    return state
+                }
                 state.profile = profile
                 return state
             }
@@ -172,6 +183,12 @@ final class CodexProfileLimitsService: ObservableObject {
         let next = waiting.removeFirst()
         guard let index = states.firstIndex(where: { $0.id == next.id }) else { return startNext() }
         let profile = states[index].profile
+        // Bind the transient request to the home actually checked, even if
+        // its symlink changes while the reader is running.
+        let checkedProfile = profile.id == Self.weeklyProfileID
+            ? CodexAccountProfile(id: profile.id, name: profile.name,
+                                  directory: URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path)
+            : profile
         let searching = next.asked && states[index].failure == .missingCLI && shellPath == nil
         states[index].attempted = Date()
         let cancellation = BoundedProcessCancellation()
@@ -180,18 +197,19 @@ final class CodexProfileLimitsService: ObservableObject {
         let read = reader ?? Self.reader(apps: Self.apps())
         queue.async { [weak self] in
             let path = searching ? shell() : known
-            let result = read(profile, path, cancellation)
+            let result = read(checkedProfile, path, cancellation)
             DispatchQueue.main.async {
                 guard let self, self.running?.cancellation === cancellation else { return }
                 self.running = nil
                 if let path { self.shellPath = path }
-                self.finish(profile, result)
+                self.finish(profile, checkedDirectory: checkedProfile.directory, result)
                 self.startNext()
             }
         }
     }
 
-    private func finish(_ profile: CodexAccountProfile, _ result: Result<CodexAccountReading, CodexAccountUsageError>) {
+    private func finish(_ profile: CodexAccountProfile, checkedDirectory: String,
+                        _ result: Result<CodexAccountReading, CodexAccountUsageError>) {
         guard let index = states.firstIndex(where: { $0.id == profile.id && $0.profile.directory == profile.directory })
         else { return }
         var state = states[index]
@@ -211,6 +229,9 @@ final class CodexProfileLimitsService: ObservableObject {
                 state.plan = nil
             }
             state.failure = failure
+        }
+        if profile.id == Self.weeklyProfileID {
+            weeklyCheck = (checkedDirectory, state)
         }
         states[index] = state
     }

@@ -25,6 +25,8 @@ enum CodexAccountLimitsTests {
             weeklyLifecycle(suite, profiles: profiles)
             weeklyForwarding(suite)
             weeklyRecreation(suite)
+            weeklyCheckCadence(suite)
+            try weeklyCadenceBoundaries(suite, root: root)
             try weeklySymlink(suite, root: root)
         } catch { suite.expect(false, "Codex account contract: \(error)") }
     }
@@ -287,7 +289,7 @@ enum CodexAccountLimitsTests {
     /// check until it is let go or cancelled.
     private final class Probe: @unchecked Sendable {
         private let lock = NSLock()
-        private var asked: [(id: String, path: String?)] = []
+        private var asked: [(id: String, path: String?, directory: String)] = []
         private var stopped: [String] = []
         private var holding = false
         private var failures: [String: CodexAccountUsageError] = [:]
@@ -295,6 +297,7 @@ enum CodexAccountLimitsTests {
         init(reading: CodexAccountReading? = nil) { self.reading = reading }
         var calls: [String] { lock.withLock { asked.map(\.id) } }
         var paths: [String?] { lock.withLock { asked.map(\.path) } }
+        var directories: [String] { lock.withLock { asked.map(\.directory) } }
         /// The checks that ended because they were cancelled.
         var cancelled: [String] { lock.withLock { stopped } }
         func hold(_ on: Bool) { lock.withLock { holding = on } }
@@ -302,7 +305,7 @@ enum CodexAccountLimitsTests {
 
         func read(_ profile: CodexAccountProfile, _ path: String?,
                   _ cancellation: BoundedProcessCancellation) -> Result<CodexAccountReading, CodexAccountUsageError> {
-            lock.withLock { asked.append((profile.id, path)) }
+            lock.withLock { asked.append((profile.id, path, profile.directory)) }
             let end = Date().addingTimeInterval(3)
             while lock.withLock({ holding }), !cancellation.isCancelled, Date() < end { usleep(5_000) }
             if cancellation.isCancelled {
@@ -546,8 +549,9 @@ enum CodexAccountLimitsTests {
             probe.hold(true)
             probe.fail(CodexProfileLimitsService.weeklyProfileID, failure)
             service.pageDidAppear(includeWeekly: true)
+            service.refresh(id: CodexProfileLimitsService.weeklyProfileID, now: Date().addingTimeInterval(1801))
             host.forwardWeeklyCodex(service.states)
-            suite.expect(service.states.first?.checking == true && service.states.first?.limits == nil
+            suite.expect(service.states.first?.checking == true && service.states.first?.limits == limits
                          && host.usage.history.current(.codex) == original,
                          "reopening Weekly keeps selected observations while its new check runs")
             probe.hold(false)
@@ -561,12 +565,130 @@ enum CodexAccountLimitsTests {
             host.usage.noteWeeklyCodexLimits(limits)
             probe.fail(CodexProfileLimitsService.weeklyProfileID, failure)
             service.pageDidAppear(includeWeekly: true)
+            service.refresh(id: CodexProfileLimitsService.weeklyProfileID, now: Date().addingTimeInterval(1801))
             wait { service.states.allSatisfy { !$0.checking } }
             host.forwardWeeklyCodex(service.states)
             suite.expect(service.states.first?.failure == failure && host.usage.history.current(.codex) == nil
                          && host.usage.history.cycles.count == 1,
                          "a definitive recreated-home failure clears selection without deleting history: \(failure)")
         }
+    }
+
+    private static func weeklyCheckCadence(_ suite: TestSuite) {
+        let cases: [(CodexAccountUsageError?, TimeInterval)] = [
+            (nil, 300), (.unavailable, 300), (.missingCLI, 1800),
+            (.needsSignIn, 1800), (.outdated, 1800), (.invalidProfile, 1800)
+        ]
+        for (failure, interval) in cases {
+            let domain = "com.vorssaint.tests.weekly-cadence." + UUID().uuidString
+            let defaults = UserDefaults(suiteName: domain)!
+            defer { defaults.removePersistentDomain(forName: domain) }
+            for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
+            for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
+            defaults.set(true, forKey: DefaultsKey.notchEnabled)
+            defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
+            defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+            defaults.set("", forKey: DefaultsKey.notchAgentsCodexProfiles)
+            let probe = Probe()
+            probe.fail(CodexProfileLimitsService.weeklyProfileID, failure)
+            let service = CodexProfileLimitsService(defaults: defaults, reader: probe.read, loginShellPath: { nil })
+            defer { service.pause() }
+            service.pageDidAppear(includeWeekly: true)
+            wait { service.states.allSatisfy { !$0.checking } }
+            guard let attempted = service.states.first?.attempted else {
+                suite.expect(false, "the initial Weekly check records its attempt time")
+                continue
+            }
+            for _ in 0..<2 {
+                service.pageDidDisappear()
+                suite.expect(service.states.isEmpty && service.timer == nil,
+                             "retaining Weekly cadence never leaves its virtual home visible in Settings")
+                service.pageDidAppear(includeWeekly: true)
+                wait { service.states.allSatisfy { !$0.checking } }
+            }
+            suite.expect(probe.calls.count == 1 && service.states.first?.attempted == attempted
+                         && service.states.first?.failure == failure,
+                         "reopening Weekly preserves the completed check and its retry cadence: \(String(describing: failure))")
+            service.refresh(now: attempted.addingTimeInterval(interval - 1))
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 1, "the recreated Weekly home still waits until its documented interval")
+            service.refresh(now: attempted.addingTimeInterval(interval + 5))
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 2, "the recreated Weekly home is checked again when its interval is due")
+            service.pause()
+            service.pageDidAppear(includeWeekly: true)
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 2, "pausing and reopening also preserves a completed Weekly backoff")
+        }
+    }
+
+    private static func weeklyCadenceBoundaries(_ suite: TestSuite, root: URL) throws {
+        let domain = "com.vorssaint.tests.weekly-cadence-boundaries." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
+        for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
+        defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
+        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
+        defaults.set("", forKey: DefaultsKey.notchAgentsCodexProfiles)
+        let now = Date()
+        let limits = AgentLimits(provider: .codex, windows: [
+            AgentLimitWindow(id: "session", kind: .session, minutes: 300, scope: nil,
+                             usedPercent: 42, resetsAt: now.addingTimeInterval(30))
+        ], observedAt: now, source: .account)
+        let probe = Probe(reading: CodexAccountReading(limits: limits, plan: "Plus"))
+        let service = CodexProfileLimitsService(defaults: defaults, reader: probe.read, loginShellPath: { nil })
+        defer { service.pause() }
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        let attempted = service.states.first!.attempted!
+        service.pageDidDisappear()
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(probe.calls.count == 1, "reopening Weekly before renewal does not query again")
+        service.refresh(now: attempted.addingTimeInterval(70))
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(probe.calls.count == 2, "reopening retains the one-minute cadence after a known window renews")
+        probe.fail(CodexProfileLimitsService.weeklyProfileID, .cancelled)
+        service.refresh(now: attempted.addingTimeInterval(301))
+        wait { service.states.allSatisfy { !$0.checking } }
+        let beforeRetry = probe.calls.count
+        probe.fail(CodexProfileLimitsService.weeklyProfileID, nil)
+        service.pageDidDisappear()
+        service.pageDidAppear(includeWeekly: true)
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(probe.calls.count == beforeRetry + 1, "a completed cancellation remains retryable after reopening")
+        service.pause()
+
+        let homes = try ["cadence-a", "cadence-b"].map { name -> URL in
+            let home = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            try Data().write(to: home.appendingPathComponent("config.toml"))
+            return home
+        }
+        let alias = root.appendingPathComponent("cadence-alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: homes[0])
+        let linkedProbe = Probe()
+        linkedProbe.hold(true)
+        linkedProbe.fail(CodexProfileLimitsService.weeklyProfileID, .missingCLI)
+        let linked = CodexProfileLimitsService(defaults: defaults, reader: linkedProbe.read, defaultDirectory: alias.path,
+                                               loginShellPath: { nil })
+        defer { linked.pause() }
+        linked.pageDidAppear(includeWeekly: true)
+        wait { linkedProbe.calls.count == 1 }
+        suite.expect(linkedProbe.directories.first == homes[0].resolvingSymlinksInPath().path,
+                     "the transient check is bound to its canonical home before dispatch")
+        try FileManager.default.removeItem(at: alias)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: homes[1])
+        linkedProbe.hold(false)
+        wait { linked.states.allSatisfy { !$0.checking } }
+        linked.pageDidDisappear()
+        linked.pageDidAppear(includeWeekly: true)
+        wait { linked.states.allSatisfy { !$0.checking } }
+        suite.expect(linkedProbe.calls.count == 2 && linkedProbe.directories.last == homes[1].resolvingSymlinksInPath().path,
+                     "a symlink retarget during a check never assigns the old home's backoff to its new target")
     }
 
     private static func weeklySymlink(_ suite: TestSuite, root: URL) throws {
