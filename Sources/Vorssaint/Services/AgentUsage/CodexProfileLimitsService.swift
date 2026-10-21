@@ -68,8 +68,8 @@ final class CodexProfileLimitsService: ObservableObject {
     private var waiting: [(id: String, asked: Bool)] = []
     private var visible = false
     private var includesWeekly = false
-    /// Retain the completed check in memory while its virtual home is hidden.
-    /// Its windows also determine the shorter cadence after a renewal.
+    /// The default home's last completed check survives hiding Weekly or
+    /// saving/removing its profile. Windows preserve the post-renewal cadence.
     private var weeklyCheck: (directory: String, state: CodexProfileLimitsState)?
     /// A Terminal window's PATH, asked of the login shell only when the
     /// person checks again for a Codex that was not found, as on the Resets
@@ -112,7 +112,7 @@ final class CodexProfileLimitsService: ObservableObject {
                 guard var state = previous.first(where: { $0.id == profile.id && $0.profile.directory == profile.directory })
                 else {
                     var state = CodexProfileLimitsState(profile: profile)
-                    if profile.id == Self.weeklyProfileID, let check = weeklyCheck,
+                    if let check = weeklyCheck,
                        check.directory == URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path {
                         state = check.state
                         state.profile = profile
@@ -183,12 +183,10 @@ final class CodexProfileLimitsService: ObservableObject {
         let next = waiting.removeFirst()
         guard let index = states.firstIndex(where: { $0.id == next.id }) else { return startNext() }
         let profile = states[index].profile
-        // Bind the transient request to the home actually checked, even if
-        // its symlink changes while the reader is running.
-        let checkedProfile = profile.id == Self.weeklyProfileID
-            ? CodexAccountProfile(id: profile.id, name: profile.name,
-                                  directory: URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path)
-            : profile
+        // Bind the request to the home actually checked, even if its symlink
+        // changes while the reader is running.
+        let checkedProfile = CodexAccountProfile(id: profile.id, name: profile.name,
+            directory: URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path)
         let searching = next.asked && states[index].failure == .missingCLI && shellPath == nil
         states[index].attempted = Date()
         let cancellation = BoundedProcessCancellation()
@@ -202,16 +200,23 @@ final class CodexProfileLimitsService: ObservableObject {
                 guard let self, self.running?.cancellation === cancellation else { return }
                 self.running = nil
                 if let path { self.shellPath = path }
-                self.finish(profile, checkedDirectory: checkedProfile.directory, result)
+                self.finish(profile, checkedDirectory: checkedProfile.directory, asked: next.asked, result)
                 self.startNext()
             }
         }
     }
 
-    private func finish(_ profile: CodexAccountProfile, checkedDirectory: String,
+    private func finish(_ profile: CodexAccountProfile, checkedDirectory: String, asked: Bool,
                         _ result: Result<CodexAccountReading, CodexAccountUsageError>) {
         guard let index = states.firstIndex(where: { $0.id == profile.id && $0.profile.directory == profile.directory })
         else { return }
+        if URL(fileURLWithPath: profile.directory).resolvingSymlinksInPath().path != checkedDirectory {
+            // The alias now names another account. Neither the old reading
+            // nor its backoff belongs to it, even while the page stays open.
+            states[index] = CodexProfileLimitsState(profile: states[index].profile)
+            refresh(id: profile.id, force: asked)
+            return
+        }
         var state = states[index]
         state.checking = false
         switch result {
@@ -230,7 +235,7 @@ final class CodexProfileLimitsService: ObservableObject {
             }
             state.failure = failure
         }
-        if profile.id == Self.weeklyProfileID {
+        if Self.isDefaultHome(profile, directory: weeklyDirectory) || weeklyCheck?.directory == checkedDirectory {
             weeklyCheck = (checkedDirectory, state)
         }
         states[index] = state

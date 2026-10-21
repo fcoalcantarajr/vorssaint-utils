@@ -619,6 +619,41 @@ enum CodexAccountLimitsTests {
             service.pageDidAppear(includeWeekly: true)
             wait { service.states.allSatisfy { !$0.checking } }
             suite.expect(probe.calls.count == 2, "pausing and reopening also preserves a completed Weekly backoff")
+
+            let beforeSave = service.states.first!
+            let saved = CodexAccountProfile(id: UUID().uuidString, name: "Saved default",
+                                             directory: URL(fileURLWithPath: CodexProfileLimitsService.defaultDirectory)
+                                                .resolvingSymlinksInPath().path)
+            probe.fail(saved.id, failure)
+            defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
+            defaults.set(CodexAccountProfile.encode([saved]), forKey: DefaultsKey.notchAgentsCodexProfiles)
+            service.synchronize()
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 2 && service.states.map(\.id) == [saved.id]
+                         && service.states.first?.attempted == beforeSave.attempted
+                         && service.states.first?.failure == beforeSave.failure
+                         && service.states.first?.limits == beforeSave.limits,
+                         "saving the canonical default home transfers its completed Weekly state without checking again")
+            service.refresh(now: beforeSave.attempted!.addingTimeInterval(interval - 1))
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 2, "a newly saved default home retains the full existing retry interval")
+            let manualFailure: CodexAccountUsageError? = failure == nil ? .needsSignIn : nil
+            probe.fail(saved.id, manualFailure)
+            service.refresh(force: true)
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 3 && probe.calls.last == saved.id
+                         && service.states.first?.failure == manualFailure
+                         && (manualFailure == nil ? service.states.first?.limits != nil : service.states.first?.limits == nil),
+                         "a saved default's manual response replaces the adopted Weekly state, including sign-out and recovery")
+            let afterManual = service.states.first!
+            defaults.set("", forKey: DefaultsKey.notchAgentsCodexProfiles)
+            service.synchronize()
+            wait { service.states.allSatisfy { !$0.checking } }
+            suite.expect(probe.calls.count == 3 && service.states.map(\.id) == [CodexProfileLimitsService.weeklyProfileID]
+                         && service.states.first?.attempted == afterManual.attempted
+                         && service.states.first?.failure == afterManual.failure
+                         && service.states.first?.limits == afterManual.limits,
+                         "removing the saved default transfers its latest manual result back to Weekly")
         }
     }
 
@@ -669,26 +704,78 @@ enum CodexAccountLimitsTests {
             return home
         }
         let alias = root.appendingPathComponent("cadence-alias")
+        for failure in [nil, CodexAccountUsageError.missingCLI] {
+            try? FileManager.default.removeItem(at: alias)
+            try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: homes[0])
+            var oldLimits = limits
+            oldLimits.accountScope = "old-home"
+            var newLimits = limits
+            newLimits.accountScope = "new-home"
+            let oldProbe = Probe(reading: CodexAccountReading(limits: oldLimits, plan: "Plus"))
+            let newProbe = Probe(reading: CodexAccountReading(limits: newLimits, plan: "Plus"))
+            oldProbe.hold(true)
+            oldProbe.fail(CodexProfileLimitsService.weeklyProfileID, failure)
+            let linked = CodexProfileLimitsService(defaults: defaults, reader: { profile, path, cancellation in
+                profile.directory == homes[0].resolvingSymlinksInPath().path
+                    ? oldProbe.read(profile, path, cancellation) : newProbe.read(profile, path, cancellation)
+            }, defaultDirectory: alias.path, loginShellPath: { nil })
+            defer { linked.pause() }
+            var publishedOldAccount = false
+            let subscription = linked.$states.sink { states in
+                if states.contains(where: { $0.limits?.accountScope == "old-home" || $0.failure == .missingCLI }) {
+                    publishedOldAccount = true
+                }
+            }
+            defer { subscription.cancel() }
+            linked.pageDidAppear(includeWeekly: true)
+            wait { oldProbe.calls.count == 1 }
+            suite.expect(oldProbe.directories.first == homes[0].resolvingSymlinksInPath().path,
+                         "the transient check is bound to its canonical home before dispatch")
+            try FileManager.default.removeItem(at: alias)
+            try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: homes[1])
+            oldProbe.hold(false)
+            wait { linked.states.allSatisfy { !$0.checking } }
+            suite.expect(newProbe.calls.count == 1 && linked.states.first?.limits?.accountScope == "new-home"
+                         && linked.states.first?.failure == nil && !publishedOldAccount,
+                         "retargeting an open Weekly home discards the old result and immediately checks the new account")
+            linked.pageDidDisappear()
+            linked.pageDidAppear(includeWeekly: true)
+            wait { linked.states.allSatisfy { !$0.checking } }
+            suite.expect(newProbe.calls.count == 1 && oldProbe.calls.count == 1,
+                         "reopening after retarget retains only the new home's completed cadence")
+        }
+
+        try FileManager.default.removeItem(at: alias)
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: homes[0])
-        let linkedProbe = Probe()
-        linkedProbe.hold(true)
-        linkedProbe.fail(CodexProfileLimitsService.weeklyProfileID, .missingCLI)
-        let linked = CodexProfileLimitsService(defaults: defaults, reader: linkedProbe.read, defaultDirectory: alias.path,
-                                               loginShellPath: { nil })
-        defer { linked.pause() }
-        linked.pageDidAppear(includeWeekly: true)
-        wait { linkedProbe.calls.count == 1 }
-        suite.expect(linkedProbe.directories.first == homes[0].resolvingSymlinksInPath().path,
-                     "the transient check is bound to its canonical home before dispatch")
+        let saved = CodexAccountProfile(id: UUID().uuidString, name: "Linked saved home", directory: alias.path)
+        defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
+        defaults.set(CodexAccountProfile.encode([saved]), forKey: DefaultsKey.notchAgentsCodexProfiles)
+        let oldProbe = Probe()
+        let newProbe = Probe()
+        let manual = CodexProfileLimitsService(defaults: defaults, reader: { profile, path, cancellation in
+            profile.directory == homes[0].resolvingSymlinksInPath().path
+                ? oldProbe.read(profile, path, cancellation) : newProbe.read(profile, path, cancellation)
+        }, defaultDirectory: alias.path, loginShellPath: { nil })
+        defer { manual.pause() }
+        manual.pageDidAppear(includeWeekly: true)
+        wait { manual.states.allSatisfy { !$0.checking } }
+        oldProbe.hold(true)
+        oldProbe.fail(saved.id, .needsSignIn)
+        manual.refresh(force: true)
+        wait { oldProbe.calls.count == 2 }
+        manual.pageDidDisappear()
+        var renamed = saved
+        renamed.name = "Renamed linked home"
+        defaults.set(CodexAccountProfile.encode([renamed]), forKey: DefaultsKey.notchAgentsCodexProfiles)
+        manual.synchronize()
         try FileManager.default.removeItem(at: alias)
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: homes[1])
-        linkedProbe.hold(false)
-        wait { linked.states.allSatisfy { !$0.checking } }
-        linked.pageDidDisappear()
-        linked.pageDidAppear(includeWeekly: true)
-        wait { linked.states.allSatisfy { !$0.checking } }
-        suite.expect(linkedProbe.calls.count == 2 && linkedProbe.directories.last == homes[1].resolvingSymlinksInPath().path,
-                     "a symlink retarget during a check never assigns the old home's backoff to its new target")
+        oldProbe.hold(false)
+        wait { manual.states.allSatisfy { !$0.checking } }
+        suite.expect(oldProbe.calls.count == 2 && newProbe.calls == [saved.id]
+                     && manual.states.first?.profile == renamed
+                     && manual.states.first?.failure == nil && manual.states.first?.limits != nil,
+                     "a manually requested saved-home check follows retarget even after the page closes")
     }
 
     private static func weeklySymlink(_ suite: TestSuite, root: URL) throws {
