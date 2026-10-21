@@ -805,6 +805,26 @@ enum CodexAccountLimitsTests {
                      "a saved symlink to the default Codex home runs one check shared by Limits and Weekly")
         suite.expect(CodexProfileLimitsService.isDefaultHome(profile, directory: alias.path),
                      "the resolved default home is recognized through its symlink")
+        let next = root.appendingPathComponent("next-default-home")
+        try FileManager.default.createDirectory(at: next, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try Data().write(to: next.appendingPathComponent("config.toml"))
+        try FileManager.default.removeItem(at: alias)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: next)
+        service.timer?.fire()
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(service.states.map(\.id) == [profile.id, CodexProfileLimitsService.weeklyProfileID]
+                     && probe.calls == [profile.id, CodexProfileLimitsService.weeklyProfileID]
+                     && service.states.last?.limits != nil
+                     && service.states.filter { CodexProfileLimitsService.isDefaultHome($0.profile, directory: alias.path) }
+                        .map(\.id) == [CodexProfileLimitsService.weeklyProfileID],
+                     "a periodic tick discovers the new default while retaining the old saved canonical home")
+        try FileManager.default.removeItem(at: alias)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: directory)
+        service.timer?.fire()
+        wait { service.states.allSatisfy { !$0.checking } }
+        suite.expect(service.states.map(\.id) == [profile.id] && probe.calls.count == 2,
+                     "a periodic tick removes the virtual home when the default again matches its saved canonical home")
     }
 
     private static func weeklyLifecycle(_ suite: TestSuite, profiles: [CodexAccountProfile]) {

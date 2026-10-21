@@ -260,7 +260,8 @@ final class CodexProfileLimitsService: ObservableObject {
             return
         }
         guard timer == nil else { return }
-        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.refresh() }
+        // A default-home symlink can move without a preference or page event.
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.synchronize() }
         timer.tolerance = 5
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
