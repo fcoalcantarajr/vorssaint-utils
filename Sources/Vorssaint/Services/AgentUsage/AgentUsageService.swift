@@ -108,7 +108,6 @@ final class AgentUsageService: ObservableObject {
     private var claudeAppModified: Date?
     private var claudeAppSamples: [AgentClaudeAppUsage.Sample] = []
     private var claudeAccountLimits: AgentLimits?
-    private var claudeWeeklySignedOut = false
     private var shippedPrices: AgentPriceList?
     private var previousLimits: [AgentProvider: AgentLimits] = [:]
     /// Warned windows, each waiting for its renewal.
@@ -763,7 +762,7 @@ final class AgentUsageService: ObservableObject {
         let scope = AgentWeeklyAccount.scope(
             identifier: account["accountUuid"] as? String ?? account["emailAddress"] as? String,
             organization: organization)
-        if weeklyHistory.selectAccount(claudeWeeklySignedOut ? nil : scope, provider: .claude) { schedulePublish() }
+        if weeklyHistory.selectAccount(weeklyHistory.claudeAccountInvalidated == true ? nil : scope, provider: .claude) { schedulePublish() }
         if organization != claudeOrganization || scope != claudeWeeklyScope {
             claudeAccountLimits = nil
             store.clearLimits(.claude)
@@ -854,8 +853,16 @@ final class AgentUsageService: ObservableObject {
         guard readerSession == session, enabled.contains(.claude) else { return }
         readClaudePlan()
         guard claudeOrganization == summary.organization, claudeWeeklyScope == summary.accountScope else { return }
-        claudeWeeklySignedOut = false
-        weeklyHistory.selectAccount(summary.accountScope, provider: .claude)
+        if let scope = summary.accountScope, !scope.isEmpty {
+            let wasInvalidated = weeklyHistory.claudeAccountInvalidated == true
+            weeklyHistory.claudeAccountInvalidated = nil
+            weeklyHistory.selectAccount(scope, provider: .claude)
+            // A same-timestamp response need not append a sample, but its
+            // verified recovery must still survive the next process launch.
+            if wasInvalidated {
+                weeklySaveFailed = !AgentWeeklyUsageFile.save(weeklyHistory, to: AgentWeeklyUsageFile.url)
+            }
+        }
         claudeAccountLimits = summary.limits
         readClaudeApp(now: Date())
         checkLimits()
@@ -892,8 +899,9 @@ final class AgentUsageService: ObservableObject {
             // Cached profile metadata can outlive a revoked sign-in. Drop
             // its current reading so publication cannot reselect that account.
             claudeAccountLimits = nil
-            claudeWeeklySignedOut = true
+            weeklyHistory.claudeAccountInvalidated = true
             weeklyHistory.selectAccount(nil, provider: .claude)
+            weeklySaveFailed = !AgentWeeklyUsageFile.save(weeklyHistory, to: AgentWeeklyUsageFile.url)
             readClaudeApp(now: Date())
             checkLimits()
             schedulePublish()

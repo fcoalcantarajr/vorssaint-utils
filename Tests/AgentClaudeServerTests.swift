@@ -3,7 +3,20 @@
 
 import Foundation
 
+typealias AgentClaudeWeeklyFile = AgentWeeklyUsageFile
+
 enum AgentClaudeServerTests {
+    /// Extracted production methods use the real archive implementation,
+    /// redirected to a temporary fixture rather than the installed app.
+    enum AgentWeeklyUsageFile {
+        static var url: URL?
+        static func save(_ history: AgentWeeklyUsage, to url: URL?) -> Bool {
+            AgentClaudeWeeklyFile.save(history, to: url)
+        }
+        static func load(from url: URL?) -> (history: AgentWeeklyUsage, failed: Bool) {
+            AgentClaudeWeeklyFile.load(from: url)
+        }
+    }
     enum NotchAgentSupport {
         static let defaultLimitThreshold = 80.0
         static func limitThreshold() -> Double? { defaultLimitThreshold }
@@ -18,6 +31,7 @@ enum AgentClaudeServerTests {
         var readerSession = 1
         var claudeWeeklyScope: String?
         var weeklyHistory = AgentWeeklyUsage()
+        var weeklySaveFailed = false
         var claudeProfileModified: Date?
         var claudePlan: AgentPlan?
         var weeklyPublications: [AgentWeeklyUsage] = []
@@ -37,7 +51,6 @@ enum AgentClaudeServerTests {
         var claudeAppModified: Date?
         var claudeAppSamples: [AgentClaudeAppUsage.Sample] = []
         var claudeAccountLimits: AgentLimits?
-        var claudeWeeklySignedOut = false
         let store = AgentUsageStore()
         var previousLimits: [AgentProvider: AgentLimits] = [:]
         var warned: [String: (provider: AgentProvider, window: AgentLimitWindow)] = [:]
@@ -266,6 +279,8 @@ enum AgentClaudeServerTests {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         host.home = folder
+        AgentWeeklyUsageFile.url = folder.appendingPathComponent("weekly.json")
+        defer { AgentWeeklyUsageFile.url = nil }
         let profile = folder.appendingPathComponent(".claude.json")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? JSONSerialization.data(withJSONObject: ["oauthAccount": [
@@ -278,6 +293,8 @@ enum AgentClaudeServerTests {
                              usedPercent: 35, resetsAt: now.addingTimeInterval(604_800))
         ], observedAt: now, source: .account, accountScope: scope)
         host.weeklyHistory.record(reading, now: now)
+        suite.expect(AgentWeeklyUsageFile.save(host.weeklyHistory, to: AgentWeeklyUsageFile.url),
+                     "the relaunch fixture starts with a valid private weekly archive")
         host.claudeAccountLimits = reading
         host.store.setLimits(reading)
         host.noteClaudeCheck(.unreachable)
@@ -289,6 +306,7 @@ enum AgentClaudeServerTests {
         suite.expect(host.weeklyHistory.current(.claude) == nil && host.weeklyHistory.cycles.count == 1
                      && host.weeklyPublications.last?.current(.claude) == nil && !host.weeklyPublications.isEmpty,
                      "a definitive Claude sign-out publishes an unselected history without deleting cycles")
+        signedOutRelaunch(suite, folder: folder, reading: reading)
         host.readClaudeApp(now: now)
         for limits in host.store.limits.values { host.weeklyHistory.record(limits, now: now) }
         suite.expect(host.claudeAccountLimits == nil && host.weeklyHistory.current(.claude) == nil,
@@ -324,6 +342,82 @@ enum AgentClaudeServerTests {
         suite.expect(host.weeklyHistory.current(.claude)?.latest?.usedPercent == 35
                      && host.weeklyHistory.current(.claude)?.samples.count == 1,
                      "a successful cached reading reselects Claude history without inventing a duplicate observation")
+    }
+
+    private static func signedOutRelaunch(_ suite: TestSuite, folder: URL, reading: AgentLimits) {
+        let loaded = AgentWeeklyUsageFile.load(from: AgentWeeklyUsageFile.url)
+        suite.expect(!loaded.failed && loaded.history.cycles.count == 1 && loaded.history.current(.claude) == nil,
+                     "Claude sign-out is committed to the private archive before process exit")
+        for failure in [AgentClaudeServer.Failure.missing, .outdated, .unreachable] {
+            let relaunched = Host()
+            relaunched.home = folder
+            relaunched.weeklyHistory = AgentWeeklyUsageFile.load(from: AgentWeeklyUsageFile.url).history
+            relaunched.weeklyHistory.selectAccount(nil, provider: .claude)
+            relaunched.readClaudePlan()
+            relaunched.noteClaudeCheck(failure)
+            relaunched.queue.sync {}
+            let cached = AgentLimits(provider: .claude, windows: reading.windows,
+                                 observedAt: reading.observedAt.addingTimeInterval(1), source: .account,
+                                 accountScope: reading.accountScope)
+            let recorded = relaunched.weeklyHistory.record(cached, now: cached.observedAt)
+            suite.expect(!recorded && relaunched.weeklyHistory.current(.claude) == nil
+                         && relaunched.weeklyHistory.cycles.first?.samples.count == 1,
+                         "relaunch with cached OAuth and an inconclusive check cannot restore revoked Claude history")
+        }
+        var expired = loaded.history
+        expired.prune(now: reading.observedAt.addingTimeInterval(92 * 86_400))
+        let roundTrip = try? JSONEncoder().encode(expired)
+        let expiredReload = roundTrip.flatMap { try? JSONDecoder().decode(AgentWeeklyUsage.self, from: $0) }
+        suite.expect(expiredReload?.cycles.isEmpty == true && expiredReload?.claudeAccountInvalidated == true,
+                     "pruning the final Claude observation retains only its non-identifying sign-out marker")
+        let unidentified = Host()
+        unidentified.home = folder.appendingPathComponent("without-identity")
+        unidentified.weeklyHistory = loaded.history
+        unidentified.queue.sync {
+            unidentified.acceptClaudeAccount(AgentClaudeServer.Summary(limits: reading, organization: nil, accountScope: nil),
+                                              session: unidentified.session)
+        }
+        unidentified.weeklyHistory.selectAccount(reading.accountScope, provider: .claude)
+        suite.expect(unidentified.weeklyHistory.current(.claude) == nil
+                     && unidentified.weeklyHistory.claudeAccountInvalidated == true,
+                     "an unidentified successful response cannot lift invalidation or allow cached identity to select history")
+        let recovered = Host()
+        recovered.home = folder
+        recovered.weeklyHistory = loaded.history
+        recovered.readClaudePlan()
+        for (session, scope) in [(recovered.session - 1, reading.accountScope), (recovered.session, "different")] {
+            recovered.queue.sync {
+                recovered.acceptClaudeAccount(AgentClaudeServer.Summary(limits: reading, organization: "account", accountScope: scope),
+                                              session: session)
+            }
+        }
+        suite.expect(AgentWeeklyUsageFile.load(from: AgentWeeklyUsageFile.url).history.current(.claude) == nil,
+                     "old-session and different-identity successes cannot lift persisted Claude invalidation")
+        recovered.queue.sync {
+            recovered.acceptClaudeAccount(AgentClaudeServer.Summary(limits: reading, organization: "account",
+                                                                    accountScope: reading.accountScope), session: recovered.session)
+        }
+        let restored = AgentWeeklyUsageFile.load(from: AgentWeeklyUsageFile.url)
+        suite.expect(!restored.failed && restored.history.current(.claude)?.samples.count == 1,
+                     "identified success with the same timestamp durably restores selection without duplicating samples")
+        let nextLaunch = Host()
+        nextLaunch.home = folder
+        nextLaunch.weeklyHistory = restored.history
+        nextLaunch.weeklyHistory.selectAccount(nil, provider: .claude)
+        nextLaunch.readClaudePlan()
+        suite.expect(nextLaunch.weeklyHistory.current(.claude)?.samples.count == 1,
+                     "a subsequent launch can select cached metadata after the validated recovery was saved")
+        let savedURL = AgentWeeklyUsageFile.url
+        let corrupt = folder.appendingPathComponent("corrupt-weekly.json")
+        let bytes = Data("{broken".utf8)
+        try? bytes.write(to: corrupt)
+        AgentWeeklyUsageFile.url = corrupt
+        defer { AgentWeeklyUsageFile.url = savedURL }
+        nextLaunch.noteClaudeCheck(.needsSignIn)
+        nextLaunch.queue.sync {}
+        suite.expect(nextLaunch.weeklySaveFailed && nextLaunch.weeklyHistory.current(.claude) == nil
+                     && nextLaunch.weeklyHistory.cycles.count == 1 && (try? Data(contentsOf: corrupt)) == bytes,
+                     "failed sign-out persistence leaves memory invalidated, reports failure, and preserves a corrupt archive")
     }
 
     private static func alerts(_ suite: TestSuite) {

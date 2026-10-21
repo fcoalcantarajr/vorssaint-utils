@@ -48,16 +48,21 @@ struct AgentWeeklyUsage: Codable, Equatable {
 
     private(set) var cycles: [Cycle] = []
     private var activeScopes: [String: String] = [:]
+    /// A revoked Claude sign-in outlives cached OAuth metadata and relaunches.
+    /// Optional so archives from before this marker still decode unchanged.
+    var claudeAccountInvalidated: Bool?
     static let maxSamples = 40_000
 
     func current(_ provider: AgentProvider) -> Cycle? {
-        cycles.last { $0.provider == provider.rawValue && $0.accountScope == activeScopes[provider.rawValue] }
+        guard provider != .claude || claudeAccountInvalidated != true else { return nil }
+        return cycles.last { $0.provider == provider.rawValue && $0.accountScope == activeScopes[provider.rawValue] }
     }
 
     /// Clearing the selected scope removes its plan immediately without
     /// deleting private observations from the previous account.
     @discardableResult
     mutating func selectAccount(_ scope: String?, provider: AgentProvider) -> Bool {
+        let scope = provider == .claude && claudeAccountInvalidated == true ? nil : scope
         guard activeScopes[provider.rawValue] != scope else { return false }
         activeScopes[provider.rawValue] = scope
         return true
@@ -65,6 +70,7 @@ struct AgentWeeklyUsage: Codable, Equatable {
 
     @discardableResult
     mutating func record(_ reading: AgentLimits, now: Date) -> Bool {
+        guard reading.provider != .claude || claudeAccountInvalidated != true else { return false }
         guard reading.source != .claudeApp, let scope = reading.accountScope, !scope.isEmpty,
               [.claude, .codex].contains(reading.provider), reading.observedAt <= now,
               let window = reading.windows.first(where: { $0.kind == .weekly && $0.scope == nil }) else { return false }
