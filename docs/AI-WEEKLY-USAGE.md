@@ -47,11 +47,17 @@ occupancy, token totals, an API bill, or a forecast of future work.
   Its daily-target column is a separate alternative; the actual-account budget
   and deadline are preserved.
 
-A mid-cycle drop stays visible as observations and never moves the deadline.
-A new source observation after the preceding reported deadline opens the next
-cycle. Merely crossing a deadline never fabricates a zero, a new week, or a new
-reset. Old cycles are retained locally but the quick-glance card shows the
-current cycle. Account metadata is hashed locally to separate observed accounts;
+A lower consumed percentage is treated as evidence of a new cycle, even when the
+previous reported deadline is still in the future. The lower source reading is
+the new cycle's first real sample; the previous cycle keeps its observations and
+deadline. These account sources do not report a discrete reset event, so a source
+correction can also trigger this inference. When the lower reading reports a
+reset deadline and window duration, the new ideal start is inferred from those
+values; otherwise the ideal line is absent. No exact reset time or synthetic zero
+is claimed. A source observation after the latest reported deadline also opens
+the next cycle. Merely crossing a deadline never fabricates a new week or reset.
+Old cycles are retained locally but the quick-glance card shows the current
+cycle. Account metadata is hashed locally to separate observed accounts;
 switching the selected account suspends the previous plan until the new account
 has a verified reading. Individual identity is required: an organization alone
 does not identify a user. The card is not an account-history selector; use the

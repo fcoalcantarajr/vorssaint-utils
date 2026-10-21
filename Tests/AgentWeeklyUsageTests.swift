@@ -46,9 +46,14 @@ enum AgentWeeklyUsageTests {
         let cycle = history.current(.codex)!
         suite.expect(cycle.originalReset == reset && cycle.latest?.resetsAt == changedReset,
                      "a changed provider deadline updates the plan while preserving the original reference")
-        _ = history.record(reading(5, at: start.addingTimeInterval(180), reset: changedReset), now: start.addingTimeInterval(180))
-        suite.expect(history.cycles.count == 1 && history.current(.codex)?.samples.count == 4,
-                     "a mid-cycle allowance refill keeps real samples and never moves the weekly deadline")
+        let dropAt = start.addingTimeInterval(180)
+        let nextReset = dropAt.addingTimeInterval(604_800)
+        _ = history.record(reading(5, at: dropAt, reset: nextReset), now: dropAt)
+        let nextCycle = history.current(.codex)
+        suite.expect(history.cycles.count == 2 && history.cycles[0].samples.map(\.usedPercent) == [25, 25, 40]
+                     && nextCycle?.samples.map(\.usedPercent) == [5] && nextCycle?.originalReset == nextReset
+                     && nextCycle?.inferredStart == dropAt,
+                     "a lower usage reading starts a cycle whose ideal begins at its reported reset-derived start")
         let plan = AgentWeeklyPlan(sample: cycle.latest!, now: start.addingTimeInterval(120))!
         let laterPlan = AgentWeeklyPlan(sample: cycle.latest!, now: start.addingTimeInterval(180))!
         suite.expect(laterPlan.start == plan.start && laterPlan.used(at: start.addingTimeInterval(3600)) == plan.used(at: start.addingTimeInterval(3600)),
@@ -59,9 +64,11 @@ enum AgentWeeklyUsageTests {
                      "crossing the deadline cannot invent the next cycle or zero usage")
         suite.expect(AgentWeeklyPlan(sample: cycle.latest!, now: start.addingTimeInterval(1000)) == nil,
                      "stale observations remain history without a purported current budget")
-        _ = history.record(reading(2, at: reset.addingTimeInterval(60), reset: reset.addingTimeInterval(604_800)),
-                           now: reset.addingTimeInterval(60))
-        suite.expect(history.cycles.count == 2, "only a source observation beyond the deadline opens the next cycle")
+        let afterNextReset = nextReset.addingTimeInterval(60)
+        let followingReset = nextReset.addingTimeInterval(604_800)
+        _ = history.record(reading(8, at: afterNextReset, reset: followingReset), now: afterNextReset)
+        suite.expect(history.cycles.count == 3 && history.current(.codex)?.originalReset == followingReset,
+                     "a source observation beyond the current deadline opens the next cycle")
 
         var desktop = AgentWeeklyUsage()
         suite.expect(!desktop.record(reading(30, at: start, source: .claudeApp), now: start) && desktop.cycles.isEmpty,
@@ -115,8 +122,10 @@ enum AgentWeeklyUsageTests {
             let next = start.addingTimeInterval(8 * 3600)
             history.record(reading(5, seconds: 4 * 3600 + 60, reset: next),
                            now: start.addingTimeInterval(4 * 3600 + 60))
-            suite.expect(history.cycles.count == 2 && history.current(provider)?.originalReset == next,
-                         "the next reported deadline belongs to the correct cycle after the revised boundary")
+            suite.expect(history.cycles.count == expectedCycles + 1
+                         && history.current(provider)?.samples.map(\.usedPercent) == [5]
+                         && history.current(provider)?.originalReset == next,
+                         "a lower usage reading opens a new cycle with its own reported deadline after revised boundaries")
         }
     }
 
