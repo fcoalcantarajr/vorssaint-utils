@@ -36,6 +36,9 @@ enum AgentClaudeServerTests {
         var claudePlan: AgentPlan?
         var weeklyPublications: [AgentWeeklyUsage] = []
         func schedulePublish() { weeklyPublications.append(weeklyHistory) }
+        var refreshRequests: [Bool] = []
+        func refreshClaudeLimits(pageShows: Bool) { refreshRequests.append(pageShows) }
+        func publish() { schedulePublish() }
         var running = true
         var paused = false
         var online = true
@@ -73,6 +76,7 @@ enum AgentClaudeServerTests {
         signedOutSelection(suite)
         alerts(suite)
         checks(suite)
+        preview(suite)
         discovery(suite)
         let now = AgentTimestamp.parse("2026-10-15T07:00:00Z")!
         func result(_ used: Any = 62, resets: Any = "2026-10-15T10:39:59.973389+00:00") -> [String: Any] {
@@ -546,6 +550,28 @@ enum AgentClaudeServerTests {
         host.pageVisible = true
         suite.expect(unused && shown && host.claudeLimitsDue(at: now + 86_400, pageShows: false),
                      "Claude Code is not asked while nothing shows or alerts on the limits, and the page's Limits card counts")
+    }
+
+    private static func preview(_ suite: TestSuite) {
+        let host = Host()
+        host.pageDidAppear(preview: true)
+        host.queue.sync {}
+        suite.expect(host.refreshRequests.isEmpty && !host.pageVisible && host.weeklyPublications.count == 1,
+                     "Settings preview reads local state without triggering a Claude account refresh")
+        host.pageDidAppear()
+        host.queue.sync {}
+        suite.expect(host.refreshRequests == [true] && host.pageVisible,
+                     "the actual AI page still requests its regular Claude account refresh")
+        host.pageDidAppear(preview: true)
+        host.queue.sync {}
+        suite.expect(host.refreshRequests == [true] && host.pageVisible && host.weeklyPublications.count == 3,
+                     "a concurrent Settings preview neither adds a request nor deactivates the real AI page")
+        host.pageDidDisappear()
+        host.running = false
+        host.pageDidAppear(preview: true)
+        host.queue.sync {}
+        suite.expect(host.refreshRequests == [true] && !host.pageVisible && host.weeklyPublications.count == 3,
+                     "a preview cannot start a stopped account service")
     }
 
     /// Where people install Claude Code, each in a home of its own, with

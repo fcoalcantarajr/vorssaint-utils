@@ -261,11 +261,12 @@ final class AgentUsageService: ObservableObject {
     }
 
     /// Reads local fallbacks immediately and asks Claude for fresh account
-    /// limits. A Settings preview reads too, without counting as the page.
+    /// limits. A Settings preview reads only local fallbacks, without
+    /// counting as the page or requesting a fresh account check.
     func pageDidAppear(preview: Bool = false) {
         if !preview { pageVisible = true }
         guard running else { return }
-        refreshClaudeLimits(pageShows: true)
+        if !preview { refreshClaudeLimits(pageShows: true) }
         queue.async { [self] in
             guard readerSession >= 0 else { return }
             readClaudePlan()
